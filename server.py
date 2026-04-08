@@ -1203,6 +1203,7 @@ def _render_admin_login(wrong: bool = False, show_totp: bool = False, wrong_totp
       {totp_field}
       <button class="btn" type="submit">Sign in</button>
     </form>
+    <a href="/" style="display:inline-block;margin-top:1rem;font-size:0.85rem">&#8592; Back to status page</a>
   </div>
 </div>
 </body>
