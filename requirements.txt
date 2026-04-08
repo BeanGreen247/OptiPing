@@ -1,0 +1,11 @@
+# OptiPing - Uptime Monitor
+# Python 3.10+ required
+# Install: pip install -r requirements.txt
+
+fastapi==0.115.12
+uvicorn[standard]==0.34.0
+aiohttp==3.11.18
+ping3==4.0.8
+toml==0.10.2
+python-socketio==5.12.1
+python-multipart==0.0.20

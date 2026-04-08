@@ -1,0 +1,86 @@
+# OptiPing Configuration File
+# Monitors list format: ["display_name", "target"]
+# Target formats:
+#   "8.8.8.8"              -> ICMP ping
+#   "hostname.com"         -> ICMP ping
+#   "hostname.com:443"     -> TCP port check
+#   "https://example.com"  -> HTTP/HTTPS GET check
+
+[server]
+host = "0.0.0.0"            # bind address (0.0.0.0 = all interfaces)
+port = 8080                  # status page port
+title = "OptiPing Status"    # page title shown in UI
+description = "System uptime monitor" # shown under title
+timezone = "UTC"             # display timezone for timestamps
+
+[auth]
+enabled = false              # set true to enable basic auth on status page
+username = "admin"
+password = "changeme"        # change before exposing publicly
+admin_password = "changeme"  # password for /admin — change this! (separate from above)
+
+[defaults]
+interval = 60                # check interval in seconds
+timeout = 5                  # connect/response timeout in seconds
+retries = 3                  # retry count before marking DOWN
+
+[database]
+path = "optiping.db"         # SQLite file path (relative to working dir)
+retention_days = 30          # how many days of history to keep
+
+[logging]
+level = "INFO"               # DEBUG, INFO, WARNING, ERROR
+file = "optiping.log"        # set to "" to disable file logging
+console = true               # print logs to stdout
+
+[[monitors]]
+name = "Google DNS"
+target = "8.8.8.8"
+interval = 30
+timeout = 3
+retries = 2
+
+[[monitors]]
+name = "Google HTTPS"
+target = "google.com:443"
+interval = 60
+timeout = 5
+retries = 3
+
+[[monitors]]
+name = "Cloudflare DNS"
+target = "1.1.1.1"
+interval = 30
+timeout = 3
+retries = 2
+
+[[monitors]]
+name = "Cloudflare Web"
+target = "https://www.cloudflare.com"
+interval = 60
+timeout = 10
+retries = 3
+
+[[monitors]]
+name = "Local Gateway"
+target = "192.168.1.1"
+interval = 30
+timeout = 3
+retries = 2
+
+# Optional: Discord webhook alert on status change
+# Remove the leading # to enable
+#[[alerts]]
+#name = "Discord"
+#type = "webhook"
+#url = "https://discord.com/api/webhooks/YOUR_WEBHOOK_ID/YOUR_WEBHOOK_TOKEN"
+#on_down = true
+#on_recovery = true
+
+# Optional: Slack webhook
+#[[alerts]]
+#name = "Slack"
+#type = "webhook"
+#url = "https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK"
+#on_down = true
+#on_recovery = true

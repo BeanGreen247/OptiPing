@@ -1,0 +1,31 @@
+# OptiPing systemd service file
+# Install:
+#   sudo cp optiping.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now optiping
+#
+# Usage:
+#   sudo systemctl stop optiping          # graceful shutdown
+#   sudo systemctl kill -s SIGKILL optiping  # force kill
+#   sudo systemctl restart optiping       # restart
+#   sudo journalctl -u optiping -f        # follow logs
+
+[Unit]
+Description=OptiPing uptime monitor
+After=network.target
+
+[Service]
+Type=simple
+User=optiping
+WorkingDirectory=/opt/optiping
+ExecStart=/usr/bin/python3 uptime_monitor.py --config /opt/optiping/config.toml
+Restart=on-failure
+RestartSec=5
+
+# Graceful shutdown: SIGTERM first, wait up to 15s, then SIGKILL
+KillSignal=SIGTERM
+KillMode=mixed
+TimeoutStopSec=15
+
+[Install]
+WantedBy=multi-user.target
