@@ -51,7 +51,7 @@ log = logging.getLogger("optiping")
 
 _DEFAULTS = {
     "server": {"host": "0.0.0.0", "port": 8080, "title": "OptiPing Status", "description": ""},
-    "auth": {"enabled": False, "username": "admin", "password": "changeme", "admin_password": "changeme"},
+    "auth": {"enabled": False, "username": "admin", "password": "changeme", "admin_password": "changeme", "totp_secret": ""},
     "defaults": {"interval": 60, "timeout": 5, "retries": 3},
     "database": {"path": "optiping.db", "retention_days": 30},
     "logging": {"level": "INFO", "file": "optiping.log", "console": True},

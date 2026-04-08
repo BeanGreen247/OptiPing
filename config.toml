@@ -18,6 +18,7 @@ enabled = false              # set true to enable basic auth on status page
 username = "admin"
 password = "changeme"        # change before exposing publicly
 admin_password = "changeme"  # password for /admin — change this! (separate from above)
+totp_secret = ""  # base32 TOTP secret — generate with: python3 -c "import pyotp; print(pyotp.random_base32())"
 
 [defaults]
 interval = 60                # check interval in seconds

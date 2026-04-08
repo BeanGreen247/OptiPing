@@ -83,6 +83,17 @@ Open **http://localhost:8080** in your browser.
 | `enabled` | `false` | Enable HTTP Basic Auth on the status page |
 | `username` | `admin` | Auth username |
 | `password` | `changeme` | Auth password — **change this before exposing publicly** |
+| `admin_password` | `changeme` | Password for `/admin` — **change this** |
+| `totp_secret` | `""` | Base32 TOTP secret for admin 2FA — leave empty to disable |
+
+#### Enabling 2FA for the admin panel
+
+1. Generate a secret: `python3 -c "import pyotp; print(pyotp.random_base32())"`
+2. Set `totp_secret = "<your-secret>"` in `config.toml`
+3. Restart OptiPing
+4. Open `/admin/2fa-setup` while logged in and scan the QR code with your authenticator app (Google Authenticator, Authy, etc.)
+
+Once set, the login form will require both the admin password and the 6-digit code from your app.
 
 ### `[defaults]`
 
@@ -202,12 +213,36 @@ nohup python uptime_monitor.py > /dev/null 2>&1 &
 
 ---
 
-## Running as a systemd Service (Linux)
+## Deploying to a Linux Server
 
-An example service file is included at `optiping.service`. Edit `WorkingDirectory` and `ExecStart` to match your install path, then:
+The service file expects the project to live at `/opt/optiping`. Follow these steps on the server:
 
 ```bash
-sudo cp optiping.service /etc/systemd/system/
+# 1. Create the install directory
+sudo mkdir -p /opt/optiping
+
+# 2a. Clone directly from GitHub (recommended)
+sudo git clone https://github.com/BeanGreen247/OptiPing.git /opt/optiping
+
+# 2b. Or copy local files
+#   sudo cp -r /path/to/OptiPing/* /opt/optiping/
+
+# 3. Install Python dependencies
+cd /opt/optiping
+sudo pip3 install -r requirements.txt
+
+# 4. Edit the config — set a strong admin_password before exposing publicly
+sudo nano /opt/optiping/config.toml
+```
+
+---
+
+## Running as a systemd Service (Linux)
+
+After deploying to `/opt/optiping`:
+
+```bash
+sudo cp /opt/optiping/optiping.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now optiping
 sudo journalctl -u optiping -f    # follow logs

@@ -10,6 +10,7 @@ import hashlib
 import hmac
 import json
 import logging
+import pyotp
 import time
 from typing import Optional
 
@@ -67,6 +68,7 @@ def create_app(
 
     auth_cfg = config.get("auth", {})
     _admin_pw = auth_cfg.get("admin_password", "changeme")
+    _totp_secret = auth_cfg.get("totp_secret", "").strip()
     _ADMIN_COOKIE = "optiping_admin"
 
     def _admin_token() -> str:
@@ -108,7 +110,7 @@ def create_app(
         cookie = request.cookies.get(_ADMIN_COOKIE, "")
         authed = hmac.compare_digest(cookie, _admin_token())
         if not authed:
-            return HTMLResponse(_render_admin_login(wrong=False))
+            return HTMLResponse(_render_admin_login(show_totp=bool(_totp_secret)))
         incidents = app.state.db.get_incidents(include_resolved=True, limit=50)
         return HTMLResponse(_render_admin_dashboard(incidents))
 
@@ -117,7 +119,11 @@ def create_app(
         form = await request.form()
         pw = str(form.get("password", ""))
         if not hmac.compare_digest(pw, _admin_pw):
-            return HTMLResponse(_render_admin_login(wrong=True), status_code=401)
+            return HTMLResponse(_render_admin_login(wrong=True, show_totp=bool(_totp_secret)), status_code=401)
+        if _totp_secret:
+            code = str(form.get("totp", "")).strip().replace(" ", "")
+            if not pyotp.TOTP(_totp_secret).verify(code):
+                return HTMLResponse(_render_admin_login(wrong_totp=True, show_totp=True), status_code=401)
         from fastapi.responses import RedirectResponse
         resp = RedirectResponse("/admin", status_code=303)
         resp.set_cookie(
@@ -135,6 +141,15 @@ def create_app(
         resp = RedirectResponse("/admin", status_code=303)
         resp.delete_cookie(_ADMIN_COOKIE)
         return resp
+
+    @app.get("/admin/2fa-setup", response_class=HTMLResponse)
+    async def admin_2fa_setup(request: Request):
+        cookie = request.cookies.get(_ADMIN_COOKIE, "")
+        if not hmac.compare_digest(cookie, _admin_token()):
+            from fastapi.responses import RedirectResponse
+            return RedirectResponse("/admin", status_code=303)
+        title = config.get("server", {}).get("title", "OptiPing")
+        return HTMLResponse(_render_2fa_setup(_totp_secret, title))
 
     @app.get("/api/monitors", dependencies=[AuthDep])
     async def api_monitors():
@@ -1090,12 +1105,13 @@ _ADMIN_CSS = """
   }
   .card h2 { margin-top: 0; }
   label { display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 0.4rem; }
-  input[type=password] {
+  input[type=password], .totp-inp {
     width: 100%; padding: 0.45rem 0.7rem; font-size: 0.9rem;
     border: 1px solid var(--border); border-radius: 4px;
     background: var(--bg); color: var(--text); margin-bottom: 1rem;
   }
-  input[type=password]:focus { outline: none; border-color: var(--accent); }
+  input[type=password]:focus, .totp-inp:focus { outline: none; border-color: var(--accent); }
+  .totp-inp { letter-spacing: 0.25em; text-align: center; font-size: 1.1rem; }
   .btn {
     display: inline-block; padding: 0.45rem 1.2rem; font-size: 0.9rem;
     background: var(--accent); color: #fff; border: none; border-radius: 4px;
@@ -1142,8 +1158,19 @@ _ADMIN_CSS = """
 """
 
 
-def _render_admin_login(wrong: bool) -> str:
-    err = '<p class="err">Incorrect password.</p>' if wrong else ""
+def _render_admin_login(wrong: bool = False, show_totp: bool = False, wrong_totp: bool = False) -> str:
+    if wrong:
+        err = '<p class="err">Incorrect password.</p>'
+    elif wrong_totp:
+        err = '<p class="err">Incorrect authenticator code.</p>'
+    else:
+        err = ""
+    totp_field = (
+        '\n      <label for="totp">Authenticator code</label>'
+        '\n      <input id="totp" type="text" name="totp" class="totp-inp"'
+        ' inputmode="numeric" maxlength="6" pattern="[0-9]*"'
+        ' autocomplete="one-time-code" placeholder="000000"/>'
+    ) if show_totp else ""
     theme_init = """
 <script>
 (function(){
@@ -1173,6 +1200,7 @@ def _render_admin_login(wrong: bool) -> str:
     <form method="POST" action="/admin/login">
       <label for="pw">Admin password</label>
       <input id="pw" type="password" name="password" autofocus autocomplete="current-password"/>
+      {totp_field}
       <button class="btn" type="submit">Sign in</button>
     </form>
   </div>
@@ -1246,6 +1274,7 @@ def _render_admin_dashboard(incidents: list) -> str:
     <span class="nav-title">OptiPing Admin</span>
     <div style="display:flex;gap:0.75rem;align-items:center">
       <a href="/">&#8592; Status page</a>
+      <a href="/admin/2fa-setup">2FA Setup</a>
       <form method="POST" action="/admin/logout" style="display:inline">
         <button class="btn-sm" type="submit">Sign out</button>
       </form>
@@ -1312,3 +1341,81 @@ async function deleteIncident(id) {{
 </body>
 </html>"""
 
+
+def _qr_img_tag(data: str) -> str:
+    import base64
+    import io
+    import qrcode
+    import qrcode.image.svg
+    img = qrcode.make(data, image_factory=qrcode.image.svg.SvgFillImage)
+    buf = io.BytesIO()
+    img.save(buf)
+    b64 = base64.b64encode(buf.getvalue()).decode()
+    return f'<img src="data:image/svg+xml;base64,{b64}" width="200" height="200" style="display:block;background:#fff;padding:8px;border-radius:4px" alt="TOTP QR code"/>'
+
+
+def _render_2fa_setup(totp_secret: str, issuer: str) -> str:
+    theme_init = """
+<script>
+(function(){
+  const s=localStorage.getItem('optiping-theme');
+  const d=window.matchMedia('(prefers-color-scheme:dark)').matches;
+  if(s==='dark'||(! s&&d)) document.documentElement.setAttribute('data-theme','dark');
+})();
+</script>"""
+    if not totp_secret:
+        body = """
+  <div class="card" style="max-width:480px">
+    <h2>2FA Setup</h2>
+    <p>Two-factor authentication is <strong>not configured</strong>.</p>
+    <p style="font-size:0.85rem;color:var(--muted);margin:0.75rem 0">To enable it:</p>
+    <ol style="padding-left:1.2rem;font-size:0.88rem;line-height:2.2">
+      <li>Generate a secret key:<br>
+        <code>python3 -c "import pyotp; print(pyotp.random_base32())"</code>
+      </li>
+      <li>Add it to <code>config.toml</code> under <code>[auth]</code>:<br>
+        <code>totp_secret = "&lt;your-secret-here&gt;"</code>
+      </li>
+      <li>Restart OptiPing, then return here to scan the QR code.</li>
+    </ol>
+    <a href="/admin" style="font-size:0.85rem;margin-top:1rem;display:inline-block">&#8592; Back to dashboard</a>
+  </div>"""
+    else:
+        totp = pyotp.TOTP(totp_secret)
+        uri = totp.provisioning_uri(name="admin", issuer_name=issuer)
+        try:
+            qr_svg = _qr_img_tag(uri)
+        except Exception:
+            qr_svg = '<p style="color:var(--down)">QR render failed — scan the URI manually.</p>'
+        body = f"""
+  <div class="card" style="max-width:420px">
+    <h2>2FA Setup</h2>
+    <p style="color:var(--up);font-weight:600;margin-bottom:0.5rem">&#10003; 2FA is active</p>
+    <p style="font-size:0.85rem;color:var(--muted);margin-bottom:1rem">
+      Scan with Google Authenticator, Authy, or any TOTP app.
+    </p>
+    <div style="display:flex;justify-content:center;margin-bottom:1.25rem">
+      {qr_svg}
+    </div>
+    <p style="font-size:0.8rem;color:var(--muted);margin-bottom:0.25rem">Manual entry (Base32 secret):</p>
+    <code style="display:block;word-break:break-all;padding:0.4rem 0.6rem;
+      background:var(--section-bg);border:1px solid var(--border);
+      border-radius:4px;font-size:0.9rem;margin-bottom:1rem">{totp_secret}</code>
+    <a href="/admin" style="font-size:0.85rem">&#8592; Back to dashboard</a>
+  </div>"""
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <title>OptiPing Admin &mdash; 2FA Setup</title>
+  <link rel="icon" href="/favicon.ico" type="image/jpeg"/>
+  <style>{_ADMIN_CSS}</style>
+  {theme_init}
+</head>
+<body>
+<div class="container">
+  {body}
+</div>
+</body>
+</html>"""

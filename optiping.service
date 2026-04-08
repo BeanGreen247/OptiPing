@@ -16,9 +16,9 @@ After=network.target
 
 [Service]
 Type=simple
-User=optiping
+User=root
 WorkingDirectory=/opt/optiping
-ExecStart=/usr/bin/python3 uptime_monitor.py --config /opt/optiping/config.toml
+ExecStart=/usr/bin/python3 /opt/optiping/uptime_monitor.py --config /opt/optiping/config.toml
 Restart=on-failure
 RestartSec=5
 

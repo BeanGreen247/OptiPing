@@ -9,3 +9,5 @@ ping3==4.0.8
 toml==0.10.2
 python-socketio==5.12.1
 python-multipart==0.0.20
+pyotp==2.9.0
+qrcode==8.0
