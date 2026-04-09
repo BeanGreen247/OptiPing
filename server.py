@@ -970,6 +970,10 @@ function drawChart(canvasId, timeline) {{
     options: {{
       responsive: true,
       animation: false,
+      interaction: {{
+        mode: 'index',
+        intersect: false,
+      }},
       plugins: {{
         legend: {{ display: false }},
         tooltip: {{
