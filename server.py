@@ -666,7 +666,6 @@ def _render_page(title: str, description: str) -> str:
 </dialog>
 
 <script>
-const _t0 = performance.now();
 // ---------------------------------------------------------------------------
 // Theme
 // ---------------------------------------------------------------------------
@@ -726,6 +725,7 @@ function cssVar(name) {{
 // Monitors list
 // ---------------------------------------------------------------------------
 async function fetchMonitors() {{
+  const _t0 = performance.now();
   try {{
     const data = await fetch('/api/monitors').then(r => r.json());
     data.forEach(m => monitors[m.name] = m);
