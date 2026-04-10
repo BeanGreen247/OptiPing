@@ -23,8 +23,8 @@ OptiPing/
 ├── uptime_monitor.py   # main entry point
 ├── core.py             # monitoring engine + database
 ├── server.py           # FastAPI web server + UI
-├── config.toml         # your configuration
-└── requirements.txt
+├── config.toml         # configuration file
+└── requirements.txt    # list of dependencies
 ```
 
 ### 2. Install dependencies

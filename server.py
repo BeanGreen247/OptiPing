@@ -666,9 +666,7 @@ def _render_page(title: str, description: str) -> str:
 </dialog>
 
 <script>
-// ---------------------------------------------------------------------------
 // Theme
-// ---------------------------------------------------------------------------
 (function() {{
   const saved = localStorage.getItem('optiping-theme');
   const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
@@ -684,16 +682,12 @@ function toggleTheme() {{
   if (activeChart) redrawChart(activeChartData);
 }}
 
-// ---------------------------------------------------------------------------
 // State
-// ---------------------------------------------------------------------------
 let monitors = {{}};
 let activeChart = null;
 let activeChartData = null;
 
-// ---------------------------------------------------------------------------
 // Helpers
-// ---------------------------------------------------------------------------
 function esc(s) {{
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }}
@@ -721,9 +715,7 @@ function cssVar(name) {{
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 }}
 
-// ---------------------------------------------------------------------------
 // Monitors list
-// ---------------------------------------------------------------------------
 async function fetchMonitors() {{
   const _t0 = performance.now();
   try {{
@@ -805,9 +797,7 @@ function renderList() {{
   }}).join('');
 }}
 
-// ---------------------------------------------------------------------------
 // Detail dialog
-// ---------------------------------------------------------------------------
 async function openDetail(name) {{
   const dlg = document.getElementById('detail-dialog');
   document.getElementById('dlg-title').textContent = name;
@@ -1004,9 +994,7 @@ function redrawChart(data) {{
   drawChart(canvas.id, data);
 }}
 
-// ---------------------------------------------------------------------------
 // Incidents (read-only display)
-// ---------------------------------------------------------------------------
 const SEVERITY_LABEL = {{
   investigating: 'Investigating',
   identified:    'Identified',
@@ -1046,9 +1034,7 @@ function renderIncidents(list) {{
   }}).join('');
 }}
 
-// ---------------------------------------------------------------------------
 // SSE — real-time updates
-// ---------------------------------------------------------------------------
 function startSSE() {{
   const es = new EventSource('/api/stream');
   es.onmessage = e => {{
@@ -1066,14 +1052,37 @@ function startSSE() {{
   es.onerror = () => {{ es.close(); setTimeout(startSSE, 5000); }};
 }}
 
-// ---------------------------------------------------------------------------
 // Boot
-// ---------------------------------------------------------------------------
+let _monitorTimer = null;
+let _incidentTimer = null;
+
+function startPolling() {{
+  if (_monitorTimer) clearInterval(_monitorTimer);
+  if (_incidentTimer) clearInterval(_incidentTimer);
+  _monitorTimer  = setInterval(fetchMonitors,  60000);
+  _incidentTimer = setInterval(fetchIncidents, 60000);
+}}
+
+function stopPolling() {{
+  clearInterval(_monitorTimer);
+  clearInterval(_incidentTimer);
+  _monitorTimer = _incidentTimer = null;
+}}
+
+document.addEventListener('visibilitychange', () => {{
+  if (document.hidden) {{
+    stopPolling();
+  }} else {{
+    fetchMonitors();
+    fetchIncidents();
+    startPolling();
+  }}
+}});
+
 fetchMonitors();
 fetchIncidents();
 startSSE();
-setInterval(fetchMonitors, 60000);
-setInterval(fetchIncidents, 60000);
+startPolling();
 </script>
 </body>
 </html>"""

@@ -18,9 +18,7 @@ import sqlite3
 
 log = logging.getLogger("optiping.core")
 
-# ---------------------------------------------------------------------------
 # Data models
-# ---------------------------------------------------------------------------
 
 @dataclass
 class MonitorConfig:
