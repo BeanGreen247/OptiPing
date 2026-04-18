@@ -686,6 +686,7 @@ function toggleTheme() {{
 let monitors = {{}};
 let activeChart = null;
 let activeChartData = null;
+let currentDetailData = null;
 
 // Helpers
 function esc(s) {{
@@ -819,6 +820,7 @@ async function openDetail(name) {{
 function closeDetail() {{
   document.getElementById('detail-dialog').close();
   if (activeChart) {{ activeChart.destroy(); activeChart = null; activeChartData = null; }}
+  currentDetailData = null;
 }}
 
 document.getElementById('detail-dialog')
@@ -860,9 +862,9 @@ function renderDetail(d) {{
 
     <div class="tabs">
       <div class="tab-btns">
-        <button class="tab-btn active" onclick="switchTab(this,'tl-24h',d)">24h</button>
-        <button class="tab-btn"        onclick="switchTab(this,'tl-7d', d)">7d</button>
-        <button class="tab-btn"        onclick="switchTab(this,'tl-30d',d)">30d</button>
+        <button class="tab-btn active" onclick="switchTab(this,'tl-24h',currentDetailData)">24h</button>
+        <button class="tab-btn"        onclick="switchTab(this,'tl-7d', currentDetailData)">7d</button>
+        <button class="tab-btn"        onclick="switchTab(this,'tl-30d',currentDetailData)">30d</button>
       </div>
     </div>
 
@@ -898,6 +900,7 @@ function renderDetail(d) {{
     </div>
   `;
 
+  currentDetailData = d;
   renderBars(d.timeline_24h, 'bars-24h');
   renderBars(d.timeline_7d,  'bars-7d');
   renderBars(d.timeline_30d, 'bars-30d');
