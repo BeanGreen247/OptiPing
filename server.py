@@ -204,13 +204,14 @@ def create_app(
         if not states:
             return JSONResponse({
                 "uptime_24h": None, "uptime_7d": None, "uptime_30d": None,
-                "timeline_30d": [], "latest_incident": None,
+                "timeline_30d": [], "daily_90d": [], "latest_incident": None,
             })
         return JSONResponse({
             "uptime_24h":      app.state.db.get_overall_uptime_pct(24),
             "uptime_7d":       app.state.db.get_overall_uptime_pct(168),
             "uptime_30d":      app.state.db.get_overall_uptime_pct(720),
             "timeline_30d":    app.state.db.get_overall_timeline(hours=720, buckets=90),
+            "daily_90d":       app.state.db.get_daily_uptime_grid(90),
             "latest_incident": app.state.db.get_latest_incident(),
         })
 
@@ -656,6 +657,58 @@ def _render_page(title: str, description: str) -> str:
     }}
     .badge.degraded {{ border-color: var(--degraded); color: var(--degraded); background: transparent; }}
 
+    /* 90-day calendar grid */
+    .cal-section {{
+      margin-top: 0.75rem;
+      padding-top: 0.75rem;
+      border-top: 1px solid var(--border);
+    }}
+    .cal-scroll {{ overflow-x: auto; }}
+    .cal-month-lbl {{
+      font-size: 0.7rem;
+      color: var(--muted);
+      white-space: nowrap;
+    }}
+    .cal-grid {{
+      display: flex;
+      gap: 3px;
+      min-width: fit-content;
+    }}
+    .cal-week {{
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      flex-shrink: 0;
+    }}
+    .cal-cell {{
+      width: 12px;
+      height: 12px;
+      border-radius: 2px;
+      cursor: default;
+      flex-shrink: 0;
+    }}
+    .cal-nodata {{ background: var(--bar-nodata); }}
+    .cal-100    {{ background: var(--up); }}
+    .cal-99     {{ background: #66bb6a; }}
+    .cal-95     {{ background: #a5d6a7; }}
+    .cal-90     {{ background: var(--degraded); }}
+    .cal-low    {{ background: #ef9a9a; }}
+    .cal-down   {{ background: var(--down); }}
+    [data-theme="dark"] .cal-99  {{ background: #388e3c; }}
+    [data-theme="dark"] .cal-95  {{ background: #1b5e20; }}
+    [data-theme="dark"] .cal-low {{ background: #b71c1c; }}
+    .cal-legend {{
+      display: flex;
+      align-items: center;
+      gap: 3px;
+      margin-top: 0.4rem;
+    }}
+    .cal-lbl {{
+      font-size: 0.7rem;
+      color: var(--muted);
+      padding: 0 0.2rem;
+    }}
+
     footer {{
       border-top: 1px solid var(--border);
       padding: 1.25rem 0;
@@ -731,6 +784,21 @@ def _render_page(title: str, description: str) -> str:
       <div class="ov-stat">
         <div class="ov-val" id="ov-30d">—</div>
         <div class="ov-lbl">30d uptime</div>
+      </div>
+    </div>
+    <div class="cal-section">
+      <div class="cal-scroll">
+        <div id="cal-months"></div>
+        <div class="cal-grid" id="overall-cal"></div>
+      </div>
+      <div class="cal-legend">
+        <span class="cal-lbl">Less</span>
+        <div class="cal-cell cal-nodata"></div>
+        <div class="cal-cell cal-low"></div>
+        <div class="cal-cell cal-90"></div>
+        <div class="cal-cell cal-99"></div>
+        <div class="cal-cell cal-100"></div>
+        <span class="cal-lbl">More uptime</span>
       </div>
     </div>
     <div class="overall-latest" id="ov-latest" style="display:none"></div>
@@ -906,6 +974,69 @@ function renderOverall(d) {{
       + ` <span class="${{sevCls}}" style="font-size:0.78rem">${{sevTxt}}</span>`
       + ` <span style="font-size:0.78rem">&middot; ${{ts}}</span>`;
   }}
+
+  renderCalGrid(d.daily_90d, 'overall-cal', 'cal-months');
+}}
+
+function renderCalGrid(dailyData, gridId, monthsId) {{
+  const gridEl = document.getElementById(gridId);
+  const monthsEl = document.getElementById(monthsId);
+  if (!gridEl || !dailyData || !dailyData.length) return;
+
+  const byDate = {{}};
+  dailyData.forEach(item => {{ byDate[item.date] = item; }});
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const startDay = new Date(today);
+  startDay.setDate(startDay.getDate() - 89);
+  startDay.setDate(startDay.getDate() - startDay.getDay());
+
+  const weeks = [];
+  const cur = new Date(startDay);
+  while (cur <= today) {{
+    const week = [];
+    for (let d = 0; d < 7; d++) {{
+      const dateStr = cur.toISOString().slice(0, 10);
+      week.push({{ date: dateStr, item: byDate[dateStr] || null, future: cur > today }});
+      cur.setDate(cur.getDate() + 1);
+    }}
+    weeks.push(week);
+  }}
+
+  const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  if (monthsEl) {{
+    const cellW = 15;
+    let lastMonth = -1;
+    let html = '';
+    weeks.forEach((week, wi) => {{
+      const m = new Date(week[0].date + 'T00:00:00').getMonth();
+      if (m !== lastMonth) {{
+        html += `<span class="cal-month-lbl" style="position:absolute;left:${{wi * cellW}}px">${{MONTHS[m]}}</span>`;
+        lastMonth = m;
+      }}
+    }});
+    monthsEl.style.cssText = 'position:relative;height:1.1rem;min-width:fit-content;margin-bottom:3px';
+    monthsEl.innerHTML = html;
+  }}
+
+  gridEl.innerHTML = weeks.map(week => {{
+    const cells = week.map(({{date, item, future}}) => {{
+      if (future) return '<div class="cal-cell" style="background:transparent"></div>';
+      if (!item || item.total === 0) return `<div class="cal-cell cal-nodata" title="${{date}}: no data"></div>`;
+      const pct = item.pct;
+      let cls;
+      if (pct >= 99.9)    cls = 'cal-100';
+      else if (pct >= 99) cls = 'cal-99';
+      else if (pct >= 95) cls = 'cal-95';
+      else if (pct >= 90) cls = 'cal-90';
+      else if (pct > 0)   cls = 'cal-low';
+      else                cls = 'cal-down';
+      return `<div class="cal-cell ${{cls}}" title="${{date}}: ${{pct != null ? pct.toFixed(2) : 0}}%"></div>`;
+    }}).join('');
+    return `<div class="cal-week">${{cells}}</div>`;
+  }}).join('');
 }}
 
 function renderList() {{

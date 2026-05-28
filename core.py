@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import asyncio
+import datetime
 import logging
 import re
 import socket
@@ -303,6 +304,30 @@ class Database:
             else:
                 status = "degraded"
             result.append({"t": bucket_start, "status": status})
+        return result
+
+    def get_daily_uptime_grid(self, days: int = 90) -> list[dict]:
+        since = time.time() - days * 86400
+        cur = self._conn.execute(
+            "SELECT date(checked_at, 'unixepoch') as day,"
+            " COUNT(*) as total,"
+            " SUM(CASE WHEN status='up' THEN 1 ELSE 0 END) as up_count"
+            " FROM checks WHERE checked_at >= ?"
+            " GROUP BY day ORDER BY day ASC",
+            (since,),
+        )
+        rows = {row[0]: (row[1], row[2] or 0) for row in cur.fetchall()}
+        today = datetime.datetime.utcnow().date()
+        result = []
+        for i in range(days - 1, -1, -1):
+            d = today - datetime.timedelta(days=i)
+            day_str = d.isoformat()
+            if day_str in rows:
+                total, up_count = rows[day_str]
+                pct = round(up_count / total * 100, 2) if total else 0.0
+                result.append({"date": day_str, "pct": pct, "total": total})
+            else:
+                result.append({"date": day_str, "pct": None, "total": 0})
         return result
 
     def get_latest_incident(self) -> Optional[dict]:

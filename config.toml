@@ -27,7 +27,7 @@ retries = 3                  # retry count before marking DOWN
 
 [database]
 path = "optiping.db"         # SQLite file path (relative to working dir)
-retention_days = 30          # how many days of history to keep
+retention_days = 90          # how many days of history to keep
 
 [logging]
 level = "INFO"               # DEBUG, INFO, WARNING, ERROR
