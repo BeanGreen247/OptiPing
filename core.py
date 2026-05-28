@@ -265,6 +265,57 @@ class Database:
             self._conn.execute("DELETE FROM incidents WHERE id=?", (incident_id,))
             self._conn.commit()
 
+    def get_overall_uptime_pct(self, hours: int = 24) -> float:
+        since = time.time() - hours * 3600
+        cur = self._conn.execute(
+            "SELECT COUNT(*) as total,"
+            " SUM(CASE WHEN status='up' THEN 1 ELSE 0 END) as up_count"
+            " FROM checks WHERE checked_at >= ?",
+            (since,),
+        )
+        row = cur.fetchone()
+        total, up_count = row[0], row[1] or 0
+        return round((up_count / total * 100), 2) if total else 0.0
+
+    def get_overall_timeline(self, hours: int = 720, buckets: int = 90) -> list[dict]:
+        since = time.time() - hours * 3600
+        bucket_size = (hours * 3600) / buckets
+        cur = self._conn.execute(
+            "SELECT checked_at, status FROM checks"
+            " WHERE checked_at >= ? ORDER BY checked_at ASC",
+            (since,),
+        )
+        rows = cur.fetchall()
+        result = []
+        for i in range(buckets):
+            bucket_start = since + i * bucket_size
+            bucket_end = bucket_start + bucket_size
+            in_bucket = [r for r in rows if bucket_start <= r[0] < bucket_end]
+            if not in_bucket:
+                result.append({"t": bucket_start, "status": "no_data"})
+                continue
+            up = sum(1 for r in in_bucket if r[1] == "up")
+            total = len(in_bucket)
+            if up == total:
+                status = "up"
+            elif up == 0:
+                status = "down"
+            else:
+                status = "degraded"
+            result.append({"t": bucket_start, "status": status})
+        return result
+
+    def get_latest_incident(self) -> Optional[dict]:
+        cur = self._conn.execute(
+            "SELECT id, title, severity, created_at, updated_at, resolved_at"
+            " FROM incidents ORDER BY updated_at DESC LIMIT 1"
+        )
+        row = cur.fetchone()
+        if not row:
+            return None
+        cols = ["id", "title", "severity", "created_at", "updated_at", "resolved_at"]
+        return dict(zip(cols, row))
+
     def get_incidents(self, include_resolved: bool = False, limit: int = 20) -> list[dict]:
         if include_resolved:
             cur = self._conn.execute(

@@ -198,6 +198,22 @@ def create_app(
             "ts": time.time(),
         })
 
+    @app.get("/api/overall", dependencies=[AuthDep])
+    async def api_overall():
+        states = app.state.scheduler.get_states()
+        if not states:
+            return JSONResponse({
+                "uptime_24h": None, "uptime_7d": None, "uptime_30d": None,
+                "timeline_30d": [], "latest_incident": None,
+            })
+        return JSONResponse({
+            "uptime_24h":      app.state.db.get_overall_uptime_pct(24),
+            "uptime_7d":       app.state.db.get_overall_uptime_pct(168),
+            "uptime_30d":      app.state.db.get_overall_uptime_pct(720),
+            "timeline_30d":    app.state.db.get_overall_timeline(hours=720, buckets=90),
+            "latest_incident": app.state.db.get_latest_incident(),
+        })
+
     @app.get("/api/incidents")
     async def api_incidents(resolved: bool = False):
         return JSONResponse(app.state.db.get_incidents(include_resolved=resolved))
@@ -581,6 +597,65 @@ def _render_page(title: str, description: str) -> str:
     .incident-body {{ font-size: 0.88rem; color: var(--muted); margin-bottom: 0.3rem; white-space: pre-wrap; }}
     .incident-meta {{ font-size: 0.78rem; color: var(--muted); }}
 
+    /* overall status card */
+    .overall-card {{
+      background: var(--section-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1.1rem 1.25rem;
+      margin-bottom: 2rem;
+    }}
+    .overall-card-header {{
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 0.75rem;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+    }}
+    .overall-card-header h2 {{
+      margin: 0;
+      border: none;
+      padding: 0;
+      font-size: 1rem;
+    }}
+    .overall-tl-meta {{
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.72rem;
+      color: var(--muted);
+      margin-bottom: 0.2rem;
+    }}
+    .overall-uptimes {{
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 0.5rem;
+      margin-top: 0.75rem;
+    }}
+    .ov-stat {{ text-align: center; }}
+    .ov-stat .ov-val {{
+      font-size: 1.05rem;
+      font-weight: 700;
+    }}
+    .ov-stat .ov-lbl {{
+      font-size: 0.72rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }}
+    .overall-latest {{
+      margin-top: 0.75rem;
+      padding-top: 0.65rem;
+      border-top: 1px solid var(--border);
+      font-size: 0.82rem;
+      color: var(--muted);
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      flex-wrap: wrap;
+    }}
+    .badge.degraded {{ border-color: var(--degraded); color: var(--degraded); background: transparent; }}
+
     footer {{
       border-top: 1px solid var(--border);
       padding: 1.25rem 0;
@@ -631,6 +706,34 @@ def _render_page(title: str, description: str) -> str:
       <div class="num" id="sum-total">—</div>
       <div class="lbl">Total</div>
     </div>
+  </div>
+
+  <!-- Overall system status -->
+  <div class="overall-card">
+    <div class="overall-card-header">
+      <h2>Overall System Status</h2>
+      <span id="ov-badge" class="badge">Loading&hellip;</span>
+    </div>
+    <div class="overall-tl-meta">
+      <span>30 days ago</span>
+      <span>Today</span>
+    </div>
+    <div class="tl-wrap" id="overall-tl" style="height:20px"></div>
+    <div class="overall-uptimes">
+      <div class="ov-stat">
+        <div class="ov-val" id="ov-24h">—</div>
+        <div class="ov-lbl">24h uptime</div>
+      </div>
+      <div class="ov-stat">
+        <div class="ov-val" id="ov-7d">—</div>
+        <div class="ov-lbl">7d uptime</div>
+      </div>
+      <div class="ov-stat">
+        <div class="ov-val" id="ov-30d">—</div>
+        <div class="ov-lbl">30d uptime</div>
+      </div>
+    </div>
+    <div class="overall-latest" id="ov-latest" style="display:none"></div>
   </div>
 
   <!-- Active incidents -->
@@ -753,6 +856,56 @@ async function fetchSummary() {{
     document.getElementById('footer-ts').textContent =
       'Last updated ' + new Date().toLocaleTimeString();
   }} catch(e) {{}}
+}}
+
+async function fetchOverall() {{
+  try {{
+    const d = await fetch('/api/overall').then(r => r.json());
+    renderOverall(d);
+  }} catch(_) {{}}
+}}
+
+function renderOverall(d) {{
+  renderBars(d.timeline_30d, 'overall-tl');
+
+  const setVal = (id, val) => {{
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = val != null ? val.toFixed(2) + '%' : '—';
+    el.className = 'ov-val ' + (val != null ? pctColor(val) : '');
+  }};
+  setVal('ov-24h', d.uptime_24h);
+  setVal('ov-7d',  d.uptime_7d);
+  setVal('ov-30d', d.uptime_30d);
+
+  const badge = document.getElementById('ov-badge');
+  if (badge) {{
+    const pct = d.uptime_30d;
+    if (pct == null) {{
+      badge.className = 'badge'; badge.textContent = 'No data';
+    }} else if (pct >= 99) {{
+      badge.className = 'badge ok'; badge.textContent = 'All Systems Operational';
+    }} else if (pct >= 95) {{
+      badge.className = 'badge degraded'; badge.textContent = 'Degraded Performance';
+    }} else {{
+      badge.className = 'badge down'; badge.textContent = 'Major Outage';
+    }}
+  }}
+
+  const latestEl = document.getElementById('ov-latest');
+  if (latestEl && d.latest_incident) {{
+    const inc = d.latest_incident;
+    const ts = new Date(inc.created_at * 1000).toLocaleDateString();
+    const resolved = inc.resolved_at;
+    const sevCls = resolved ? 'c-up' : (inc.severity === 'investigating' ? 'c-down' : 'c-degraded');
+    const sevTxt = resolved ? 'resolved' : esc(inc.severity);
+    latestEl.style.display = 'flex';
+    latestEl.innerHTML =
+      '<span>Latest change:</span>'
+      + ` <strong>${{esc(inc.title)}}</strong>`
+      + ` <span class="${{sevCls}}" style="font-size:0.78rem">${{sevTxt}}</span>`
+      + ` <span style="font-size:0.78rem">&middot; ${{ts}}</span>`;
+  }}
 }}
 
 function renderList() {{
@@ -1059,17 +1212,22 @@ function startSSE() {{
 let _monitorTimer = null;
 let _incidentTimer = null;
 
+let _overallTimer = null;
+
 function startPolling() {{
-  if (_monitorTimer) clearInterval(_monitorTimer);
+  if (_monitorTimer)  clearInterval(_monitorTimer);
   if (_incidentTimer) clearInterval(_incidentTimer);
+  if (_overallTimer)  clearInterval(_overallTimer);
   _monitorTimer  = setInterval(fetchMonitors,  60000);
   _incidentTimer = setInterval(fetchIncidents, 60000);
+  _overallTimer  = setInterval(fetchOverall,   60000);
 }}
 
 function stopPolling() {{
   clearInterval(_monitorTimer);
   clearInterval(_incidentTimer);
-  _monitorTimer = _incidentTimer = null;
+  clearInterval(_overallTimer);
+  _monitorTimer = _incidentTimer = _overallTimer = null;
 }}
 
 document.addEventListener('visibilitychange', () => {{
@@ -1078,12 +1236,14 @@ document.addEventListener('visibilitychange', () => {{
   }} else {{
     fetchMonitors();
     fetchIncidents();
+    fetchOverall();
     startPolling();
   }}
 }});
 
 fetchMonitors();
 fetchIncidents();
+fetchOverall();
 startSSE();
 startPolling();
 </script>
