@@ -16,3 +16,5 @@ env/
 
 # Secrets / local overrides
 *.local.toml
+.claude
+.claude/*

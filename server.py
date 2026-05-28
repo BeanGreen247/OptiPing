@@ -663,29 +663,39 @@ def _render_page(title: str, description: str) -> str:
       padding-top: 0.75rem;
       border-top: 1px solid var(--border);
     }}
-    .cal-scroll {{ overflow-x: auto; }}
-    .cal-month-lbl {{
-      font-size: 0.7rem;
-      color: var(--muted);
-      white-space: nowrap;
-    }}
     .cal-grid {{
       display: flex;
+      gap: 1rem;
+      width: 100%;
+    }}
+    .cal-month-group {{
+      flex: 1;
+      min-width: 0;
+    }}
+    .cal-month-name {{
+      font-size: 0.72rem;
+      color: var(--muted);
+      margin-bottom: 4px;
+    }}
+    .cal-month-weeks {{
+      display: flex;
       gap: 3px;
-      min-width: fit-content;
     }}
     .cal-week {{
       display: flex;
       flex-direction: column;
       gap: 3px;
-      flex-shrink: 0;
+      flex: 1;
     }}
     .cal-cell {{
-      width: 12px;
-      height: 12px;
+      aspect-ratio: 1;
+      width: 100%;
       border-radius: 2px;
       cursor: default;
-      flex-shrink: 0;
+    }}
+    .cal-legend .cal-cell {{
+      width: 14px;
+      flex: none;
     }}
     .cal-nodata {{ background: var(--bar-nodata); }}
     .cal-100    {{ background: var(--up); }}
@@ -724,6 +734,7 @@ def _render_page(title: str, description: str) -> str:
       .monitor-right {{ gap: 0.75rem; }}
       .meta-col:not(:last-child) {{ display: none; }}
       .summary {{ grid-template-columns: repeat(3, 1fr); }}
+      .cal-grid {{ flex-direction: column; gap: 0.75rem; }}
     }}
   </style>
 </head>
@@ -787,10 +798,7 @@ def _render_page(title: str, description: str) -> str:
       </div>
     </div>
     <div class="cal-section">
-      <div class="cal-scroll">
-        <div id="cal-months"></div>
-        <div class="cal-grid" id="overall-cal"></div>
-      </div>
+      <div class="cal-grid" id="overall-cal"></div>
       <div class="cal-legend">
         <span class="cal-lbl">Less</span>
         <div class="cal-cell cal-nodata"></div>
@@ -975,12 +983,11 @@ function renderOverall(d) {{
       + ` <span style="font-size:0.78rem">&middot; ${{ts}}</span>`;
   }}
 
-  renderCalGrid(d.daily_90d, 'overall-cal', 'cal-months');
+  renderCalGrid(d.daily_90d, 'overall-cal');
 }}
 
-function renderCalGrid(dailyData, gridId, monthsId) {{
+function renderCalGrid(dailyData, gridId) {{
   const gridEl = document.getElementById(gridId);
-  const monthsEl = document.getElementById(monthsId);
   if (!gridEl || !dailyData || !dailyData.length) return;
 
   const byDate = {{}};
@@ -1006,36 +1013,36 @@ function renderCalGrid(dailyData, gridId, monthsId) {{
   }}
 
   const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  if (monthsEl) {{
-    const cellW = 15;
-    let lastMonth = -1;
-    let html = '';
-    weeks.forEach((week, wi) => {{
-      const m = new Date(week[0].date + 'T00:00:00').getMonth();
-      if (m !== lastMonth) {{
-        html += `<span class="cal-month-lbl" style="position:absolute;left:${{wi * cellW}}px">${{MONTHS[m]}}</span>`;
-        lastMonth = m;
-      }}
-    }});
-    monthsEl.style.cssText = 'position:relative;height:1.1rem;min-width:fit-content;margin-bottom:3px';
-    monthsEl.innerHTML = html;
-  }}
 
-  gridEl.innerHTML = weeks.map(week => {{
-    const cells = week.map(({{date, item, future}}) => {{
-      if (future) return '<div class="cal-cell" style="background:transparent"></div>';
-      if (!item || item.total === 0) return `<div class="cal-cell cal-nodata" title="${{date}}: no data"></div>`;
-      const pct = item.pct;
-      let cls;
-      if (pct >= 99.9)    cls = 'cal-100';
-      else if (pct >= 99) cls = 'cal-99';
-      else if (pct >= 95) cls = 'cal-95';
-      else if (pct >= 90) cls = 'cal-90';
-      else if (pct > 0)   cls = 'cal-low';
-      else                cls = 'cal-down';
-      return `<div class="cal-cell ${{cls}}" title="${{date}}: ${{pct != null ? pct.toFixed(2) : 0}}%"></div>`;
+  const monthGroups = [];
+  let curGroup = null;
+  weeks.forEach(week => {{
+    const m = new Date(week[0].date + 'T00:00:00').getMonth();
+    if (!curGroup || curGroup.month !== m) {{
+      curGroup = {{ month: m, weeks: [] }};
+      monthGroups.push(curGroup);
+    }}
+    curGroup.weeks.push(week);
+  }});
+
+  gridEl.innerHTML = monthGroups.map(group => {{
+    const weeksHtml = group.weeks.map(week => {{
+      const cells = week.map(({{date, item, future}}) => {{
+        if (future) return '<div class="cal-cell" style="background:transparent"></div>';
+        if (!item || item.total === 0) return `<div class="cal-cell cal-nodata" title="${{date}}: no data"></div>`;
+        const pct = item.pct;
+        let cls;
+        if (pct >= 99.9)    cls = 'cal-100';
+        else if (pct >= 99) cls = 'cal-99';
+        else if (pct >= 95) cls = 'cal-95';
+        else if (pct >= 90) cls = 'cal-90';
+        else if (pct > 0)   cls = 'cal-low';
+        else                cls = 'cal-down';
+        return `<div class="cal-cell ${{cls}}" title="${{date}}: ${{pct != null ? pct.toFixed(2) : 0}}%"></div>`;
+      }}).join('');
+      return `<div class="cal-week">${{cells}}</div>`;
     }}).join('');
-    return `<div class="cal-week">${{cells}}</div>`;
+    return `<div class="cal-month-group"><div class="cal-month-name">${{MONTHS[group.month]}}</div><div class="cal-month-weeks">${{weeksHtml}}</div></div>`;
   }}).join('');
 }}
 
