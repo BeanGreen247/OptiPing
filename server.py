@@ -665,37 +665,32 @@ def _render_page(title: str, description: str) -> str:
     }}
     .cal-grid {{
       display: flex;
-      gap: 1rem;
-      width: 100%;
+      gap: 1.5rem;
+      align-items: flex-start;
     }}
     .cal-month-group {{
-      flex: 1;
-      min-width: 0;
+      flex-shrink: 0;
     }}
     .cal-month-name {{
-      font-size: 0.72rem;
+      font-size: 0.7rem;
       color: var(--muted);
-      margin-bottom: 4px;
+      margin-bottom: 3px;
     }}
     .cal-month-weeks {{
       display: flex;
-      gap: 3px;
+      gap: 2px;
     }}
     .cal-week {{
       display: flex;
       flex-direction: column;
-      gap: 3px;
-      flex: 1;
+      gap: 2px;
     }}
     .cal-cell {{
-      aspect-ratio: 1;
-      width: 100%;
+      width: 10px;
+      height: 10px;
       border-radius: 2px;
       cursor: default;
-    }}
-    .cal-legend .cal-cell {{
-      width: 14px;
-      flex: none;
+      flex-shrink: 0;
     }}
     .cal-nodata {{ background: var(--bar-nodata); }}
     .cal-100    {{ background: var(--up); }}
@@ -996,39 +991,37 @@ function renderCalGrid(dailyData, gridId) {{
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
-  const startDay = new Date(today);
-  startDay.setDate(startDay.getDate() - 89);
-  startDay.setDate(startDay.getDate() - startDay.getDay());
-
-  const weeks = [];
-  const cur = new Date(startDay);
-  while (cur <= today) {{
-    const week = [];
-    for (let d = 0; d < 7; d++) {{
-      const dateStr = cur.toISOString().slice(0, 10);
-      week.push({{ date: dateStr, item: byDate[dateStr] || null, future: cur > today }});
-      cur.setDate(cur.getDate() + 1);
-    }}
-    weeks.push(week);
-  }}
-
   const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
   const monthGroups = [];
-  let curGroup = null;
-  weeks.forEach(week => {{
-    const m = new Date(week[0].date + 'T00:00:00').getMonth();
-    if (!curGroup || curGroup.month !== m) {{
-      curGroup = {{ month: m, weeks: [] }};
-      monthGroups.push(curGroup);
+  for (let offset = 2; offset >= 0; offset--) {{
+    const ref = new Date(today.getFullYear(), today.getMonth() - offset, 1);
+    const yr  = ref.getFullYear();
+    const mo  = ref.getMonth();
+    const lastDate = offset === 0 ? today : new Date(yr, mo + 1, 0);
+
+    const firstSun = new Date(yr, mo, 1);
+    firstSun.setDate(firstSun.getDate() - firstSun.getDay());
+
+    const weeks = [];
+    const cur = new Date(firstSun);
+    while (cur <= lastDate) {{
+      const week = [];
+      for (let d = 0; d < 7; d++) {{
+        const inMonth = cur.getMonth() === mo && cur.getFullYear() === yr;
+        const isFuture = cur > today;
+        week.push({{ date: cur.toISOString().slice(0, 10), item: byDate[cur.toISOString().slice(0, 10)] || null, inMonth, future: isFuture }});
+        cur.setDate(cur.getDate() + 1);
+      }}
+      if (week.some(c => c.inMonth)) weeks.push(week);
     }}
-    curGroup.weeks.push(week);
-  }});
+    monthGroups.push({{ name: MONTHS[mo], weeks }});
+  }}
 
   gridEl.innerHTML = monthGroups.map(group => {{
     const weeksHtml = group.weeks.map(week => {{
-      const cells = week.map(({{date, item, future}}) => {{
-        if (future) return '<div class="cal-cell" style="background:transparent"></div>';
+      const cells = week.map(({{date, item, inMonth, future}}) => {{
+        if (!inMonth || future) return '<div class="cal-cell" style="background:transparent"></div>';
         if (!item || item.total === 0) return `<div class="cal-cell cal-nodata" title="${{date}}: no data"></div>`;
         const pct = item.pct;
         let cls;
@@ -1042,7 +1035,7 @@ function renderCalGrid(dailyData, gridId) {{
       }}).join('');
       return `<div class="cal-week">${{cells}}</div>`;
     }}).join('');
-    return `<div class="cal-month-group"><div class="cal-month-name">${{MONTHS[group.month]}}</div><div class="cal-month-weeks">${{weeksHtml}}</div></div>`;
+    return `<div class="cal-month-group"><div class="cal-month-name">${{group.name}}</div><div class="cal-month-weeks">${{weeksHtml}}</div></div>`;
   }}).join('');
 }}
 
