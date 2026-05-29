@@ -665,29 +665,35 @@ def _render_page(title: str, description: str) -> str:
     }}
     .cal-grid {{
       display: flex;
-      gap: 1.5rem;
+      justify-content: space-between;
       align-items: flex-start;
+      width: 100%;
     }}
     .cal-month-group {{
-      flex-shrink: 0;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
     }}
     .cal-month-name {{
-      font-size: 0.7rem;
+      font-size: 0.75rem;
       color: var(--muted);
-      margin-bottom: 3px;
+      margin-bottom: 5px;
+      font-weight: 600;
+      letter-spacing: 0.04em;
     }}
     .cal-month-weeks {{
       display: flex;
-      gap: 2px;
+      gap: 3px;
     }}
     .cal-week {{
       display: flex;
       flex-direction: column;
-      gap: 2px;
+      gap: 3px;
     }}
     .cal-cell {{
-      width: 10px;
-      height: 10px;
+      width: 13px;
+      height: 13px;
       border-radius: 2px;
       cursor: default;
       flex-shrink: 0;
@@ -705,8 +711,9 @@ def _render_page(title: str, description: str) -> str:
     .cal-legend {{
       display: flex;
       align-items: center;
-      gap: 3px;
-      margin-top: 0.4rem;
+      justify-content: center;
+      gap: 4px;
+      margin-top: 0.6rem;
     }}
     .cal-lbl {{
       font-size: 0.7rem;
@@ -729,7 +736,8 @@ def _render_page(title: str, description: str) -> str:
       .monitor-right {{ gap: 0.75rem; }}
       .meta-col:not(:last-child) {{ display: none; }}
       .summary {{ grid-template-columns: repeat(3, 1fr); }}
-      .cal-grid {{ flex-direction: column; gap: 0.75rem; }}
+      .cal-grid {{ flex-direction: column; align-items: center; gap: 1rem; }}
+      .cal-month-group {{ align-items: center; }}
     }}
   </style>
 </head>
@@ -743,7 +751,6 @@ def _render_page(title: str, description: str) -> str:
         {f'<p>{description}</p>' if description else ''}
       </div>
       <div class="header-right">
-        <span id="overall-badge" class="badge">Loading&hellip;</span>
         <button class="theme-btn" onclick="toggleTheme()" title="Toggle dark/light mode">&#9728; / &#9790;</button>
       </div>
     </div>
@@ -915,13 +922,15 @@ async function fetchSummary() {{
     document.getElementById('sum-total').textContent = d.total;
 
     const badge = document.getElementById('overall-badge');
-    if (d.total === 0) {{
-      badge.className = 'badge'; badge.textContent = 'No monitors';
-    }} else if (d.down === 0) {{
-      badge.className = 'badge ok'; badge.textContent = 'All Systems Operational';
-    }} else {{
-      badge.className = 'badge down';
-      badge.textContent = d.down + ' Service' + (d.down > 1 ? 's' : '') + ' Down';
+    if (badge) {{
+      if (d.total === 0) {{
+        badge.className = 'badge'; badge.textContent = 'No monitors';
+      }} else if (d.down === 0) {{
+        badge.className = 'badge ok'; badge.textContent = 'All Systems Operational';
+      }} else {{
+        badge.className = 'badge down';
+        badge.textContent = d.down + ' Service' + (d.down > 1 ? 's' : '') + ' Down';
+      }}
     }}
 
     document.getElementById('footer-ts').textContent =
