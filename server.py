@@ -620,6 +620,13 @@ def _render_page(title: str, description: str) -> str:
       padding: 0;
       font-size: 1rem;
     }}
+    .ov-tl-scroll {{
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+    }}
+    .ov-tl-inner {{
+      min-width: 480px;
+    }}
     .overall-tl-meta {{
       display: flex;
       justify-content: space-between;
@@ -780,11 +787,15 @@ def _render_page(title: str, description: str) -> str:
       <h2>Overall System Status</h2>
       <span id="ov-badge" class="badge">Loading&hellip;</span>
     </div>
-    <div class="overall-tl-meta">
-      <span>30 days ago</span>
-      <span>Today</span>
+    <div class="ov-tl-scroll">
+      <div class="ov-tl-inner">
+        <div class="overall-tl-meta">
+          <span>30 days ago</span>
+          <span>Today</span>
+        </div>
+        <div class="tl-wrap" id="overall-tl" style="height:20px"></div>
+      </div>
     </div>
-    <div class="tl-wrap" id="overall-tl" style="height:20px"></div>
     <div class="overall-uptimes">
       <div class="ov-stat">
         <div class="ov-val" id="ov-24h">—</div>
