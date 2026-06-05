@@ -375,6 +375,9 @@ class Database:
         return [dict(zip(cols, row)) for row in cur.fetchall()]
 
     def get_status_blocks(self, active_only: bool = False) -> list[dict]:
+        # create table on-the-fly in case DB was opened with old schema
+        self._conn.execute(_CREATE_STATUS_BLOCKS)
+        self._conn.commit()
         now = time.time()
         if active_only:
             cur = self._conn.execute(
