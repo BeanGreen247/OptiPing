@@ -301,8 +301,14 @@ def create_app(
             raise HTTPException(400, "start_at and end_at are required")
         try:
             import datetime as _dt
-            start_at = _dt.datetime.fromisoformat(start_str).timestamp()
-            end_at = _dt.datetime.fromisoformat(end_str).timestamp()
+            start_dt = _dt.datetime.fromisoformat(start_str)
+            end_dt   = _dt.datetime.fromisoformat(end_str)
+            # If user left time at midnight, treat as end of that day so the
+            # full last day is covered in both the timeline and the calendar.
+            if end_dt.hour == 0 and end_dt.minute == 0 and end_dt.second == 0:
+                end_dt = end_dt.replace(hour=23, minute=59, second=59)
+            start_at = start_dt.timestamp()
+            end_at   = end_dt.timestamp()
         except Exception:
             raise HTTPException(400, "invalid date format — expected ISO 8601")
         if end_at <= start_at:
@@ -1354,7 +1360,8 @@ function renderBars(data, id, statusBlocks) {{
   const bucketSz = data.length > 1 ? (data[1].t - data[0].t) : 3600;
   el.innerHTML = data.map(b => {{
     // Overlap: bucket [b.t, b.t+bucketSz) intersects block [r.start, r.end]
-    const sb = sbRanges.find(r => b.t < r.end && (b.t + bucketSz) > r.start);
+    // Use <= on end to handle blocks stored with exact-midnight end times.
+    const sb = sbRanges.find(r => b.t <= r.end && (b.t + bucketSz) > r.start);
     if (sb) {{
       const lbl = {{maintenance:'Maintenance',vacation:'Vacation',other:'Scheduled'}}[sb.kind] || sb.kind;
       return `<div class="tl-bar tl-${{sb.kind}}" title="${{lbl}}"></div>`;
