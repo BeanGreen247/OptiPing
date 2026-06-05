@@ -1355,12 +1355,16 @@ function renderDetail(d) {{
 function renderBars(data, id, statusBlocks) {{
   const el = document.getElementById(id);
   if (!el || !data) return;
-  const sbRanges = (statusBlocks || []).map(sb => ({{ start: sb.start_at, end: sb.end_at, kind: sb.kind }}));
+  // Normalise block end to local end-of-day so timeline and calendar agree.
+  const sbRanges = (statusBlocks || []).map(sb => {{
+    const endD = new Date(sb.end_at * 1000);
+    endD.setHours(23, 59, 59, 999);
+    return {{ start: sb.start_at, end: endD.getTime() / 1000, kind: sb.kind }};
+  }});
   // Derive bucket width from adjacent timestamps so overlap check works at edges
   const bucketSz = data.length > 1 ? (data[1].t - data[0].t) : 3600;
   el.innerHTML = data.map(b => {{
     // Overlap: bucket [b.t, b.t+bucketSz) intersects block [r.start, r.end]
-    // Use <= on end to handle blocks stored with exact-midnight end times.
     const sb = sbRanges.find(r => b.t <= r.end && (b.t + bucketSz) > r.start);
     if (sb) {{
       const lbl = {{maintenance:'Maintenance',vacation:'Vacation',other:'Scheduled'}}[sb.kind] || sb.kind;
