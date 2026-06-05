@@ -301,16 +301,17 @@ def create_app(
             raise HTTPException(400, "start_at and end_at are required")
         try:
             import datetime as _dt
-            start_dt = _dt.datetime.fromisoformat(start_str)
-            end_dt   = _dt.datetime.fromisoformat(end_str)
-            # If user left time at midnight, treat as end of that day so the
-            # full last day is covered in both the timeline and the calendar.
-            if end_dt.hour == 0 and end_dt.minute == 0 and end_dt.second == 0:
-                end_dt = end_dt.replace(hour=23, minute=59, second=59)
-            start_at = start_dt.timestamp()
-            end_at   = end_dt.timestamp()
+            # Accept YYYY-MM-DD or YYYY-MM-DDTHH:MM; always store as UTC day boundaries
+            start_at = _dt.datetime(
+                *[int(x) for x in start_str.split('T')[0].split('-')],
+                0, 0, 0, tzinfo=_dt.timezone.utc
+            ).timestamp()
+            end_at = _dt.datetime(
+                *[int(x) for x in end_str.split('T')[0].split('-')],
+                23, 59, 59, tzinfo=_dt.timezone.utc
+            ).timestamp()
         except Exception:
-            raise HTTPException(400, "invalid date format — expected ISO 8601")
+            raise HTTPException(400, "invalid date format — expected YYYY-MM-DD")
         if end_at <= start_at:
             raise HTTPException(400, "end_at must be after start_at")
         block_id = await app.state.db.create_status_block(kind, title, start_at, end_at)
@@ -1122,20 +1123,16 @@ function renderCalGrid(dailyData, gridId, statusBlocks) {{
   const gridEl = document.getElementById(gridId);
   if (!gridEl || !dailyData || !dailyData.length) return;
 
-  // Build local-date -> status block kind lookup
-  const localDateStr = dt => dt.getFullYear() + '-'
-    + String(dt.getMonth() + 1).padStart(2, '0') + '-'
-    + String(dt.getDate()).padStart(2, '0');
+  // Build UTC-date -> status block kind lookup (blocks stored as UTC day boundaries)
   const sbMap = {{}};
   if (statusBlocks && statusBlocks.length) {{
     statusBlocks.forEach(sb => {{
       const d = new Date(sb.start_at * 1000);
-      d.setHours(0, 0, 0, 0);
+      d.setUTCHours(0, 0, 0, 0);
       const endD = new Date(sb.end_at * 1000);
-      // No extension — trust the stored end timestamp (server snaps to 23:59:59 local)
       while (d <= endD) {{
-        sbMap[localDateStr(d)] = sb.kind;
-        d.setDate(d.getDate() + 1);
+        sbMap[d.toISOString().slice(0, 10)] = sb.kind;
+        d.setUTCDate(d.getUTCDate() + 1);
       }}
     }});
   }}
@@ -1165,8 +1162,7 @@ function renderCalGrid(dailyData, gridId, statusBlocks) {{
       for (let d = 0; d < 7; d++) {{
         const inMonth = cur.getMonth() === mo && cur.getFullYear() === yr;
         const isFuture = cur > today;
-        const dateKey = localDateStr(cur);
-        week.push({{ date: dateKey, item: byDate[dateKey] || null, inMonth, future: isFuture }});
+        week.push({{ date: cur.toISOString().slice(0, 10), item: byDate[cur.toISOString().slice(0, 10)] || null, inMonth, future: isFuture }});
         cur.setDate(cur.getDate() + 1);
       }}
       if (week.some(c => c.inMonth)) weeks.push(week);
@@ -1853,9 +1849,9 @@ def _render_admin_dashboard(incidents: list, status_blocks: list) -> str:
     </div>
     <div class="form-row">
       <label style="align-self:center;font-size:0.85rem;font-weight:600;margin:0">From</label>
-      <input class="inp-datetime" id="sb-start" type="datetime-local" required/>
+      <input class="inp-datetime" id="sb-start" type="date" required/>
       <label style="align-self:center;font-size:0.85rem;font-weight:600;margin:0">To</label>
-      <input class="inp-datetime" id="sb-end" type="datetime-local" required/>
+      <input class="inp-datetime" id="sb-end" type="date" required/>
       <button class="btn" type="submit">Add</button>
     </div>
     <p id="sb-msg" style="font-size:0.85rem;margin-top:0.4rem"></p>
