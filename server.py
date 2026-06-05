@@ -638,7 +638,6 @@ def _render_page(title: str, description: str) -> str:
     .sb-item.vacation    {{ border-left-color: #1565c0; background: #e3f2fd; }}
     [data-theme="dark"] .sb-item.maintenance {{ background: #2d2500; }}
     [data-theme="dark"] .sb-item.vacation    {{ background: #0d1e30; }}
-    .sb-icon  {{ font-size: 1.3rem; line-height: 1; flex-shrink: 0; margin-top: 0.1rem; }}
     .sb-body  {{ flex: 1; min-width: 0; }}
     .sb-title {{ font-weight: 700; font-size: 0.95rem; margin-bottom: 0.2rem; }}
     .sb-dates {{ font-size: 0.82rem; color: var(--muted); }}
@@ -1390,7 +1389,6 @@ function redrawChart(data) {{
 }}
 
 // Status blocks (read-only display)
-const SB_ICON  = {{ maintenance: '🔧', vacation: '🌴', other: 'ℹ️' }};
 const SB_LABEL = {{ maintenance: 'Maintenance', vacation: 'Vacation', other: 'Notice' }};
 
 async function fetchStatusBlocks() {{
@@ -1418,14 +1416,12 @@ function renderStatusBlocks(list) {{
     const isActive = sb.start_at <= now && sb.end_at >= now;
     const tag = isActive ? 'active' : 'upcoming';
     const tagLabel = isActive ? 'Active now' : 'Upcoming';
-    const icon = SB_ICON[sb.kind] || 'ℹ️';
     const kind = SB_LABEL[sb.kind] || sb.kind;
     const fmt = ts => new Date(ts * 1000).toLocaleString([], {{
       month: 'short', day: 'numeric', year: 'numeric',
       hour: '2-digit', minute: '2-digit'
     }});
     return `<div class="sb-item ${{sb.kind}}">
-      <span class="sb-icon">${{icon}}</span>
       <div class="sb-body">
         <div class="sb-title">${{esc(sb.title)}}</div>
         <div class="sb-dates">${{kind}} &middot; ${{fmt(sb.start_at)}} &ndash; ${{fmt(sb.end_at)}}</div>
@@ -1803,9 +1799,9 @@ def _render_admin_dashboard(incidents: list, status_blocks: list) -> str:
   <form id="sb-form">
     <div class="form-row">
       <select id="sb-kind">
-        <option value="maintenance">\ud83d\udd27 Maintenance</option>
-        <option value="vacation">\ud83c\udf34 Vacation</option>
-        <option value="other">\u2139\ufe0f Other</option>
+        <option value="maintenance">Maintenance</option>
+        <option value="vacation">Vacation</option>
+        <option value="other">Other</option>
       </select>
       <input class="inp-title" id="sb-title" type="text" placeholder="Label&hellip;" maxlength="200" required/>
     </div>
