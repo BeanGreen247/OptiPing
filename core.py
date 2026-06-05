@@ -334,7 +334,7 @@ class Database:
     def get_daily_uptime_grid(self, days: int = 90) -> list[dict]:
         since = time.time() - days * 86400
         cur = self._conn.execute(
-            "SELECT date(checked_at, 'unixepoch') as day,"
+            "SELECT date(checked_at, 'unixepoch', 'localtime') as day,"
             " COUNT(*) as total,"
             " SUM(CASE WHEN status='up' THEN 1 ELSE 0 END) as up_count"
             " FROM checks WHERE checked_at >= ?"
@@ -342,7 +342,7 @@ class Database:
             (since,),
         )
         rows = {row[0]: (row[1], row[2] or 0) for row in cur.fetchall()}
-        today = datetime.datetime.utcnow().date()
+        today = datetime.datetime.now().date()
         result = []
         for i in range(days - 1, -1, -1):
             d = today - datetime.timedelta(days=i)

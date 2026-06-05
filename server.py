@@ -1122,19 +1122,19 @@ function renderCalGrid(dailyData, gridId, statusBlocks) {{
   const gridEl = document.getElementById(gridId);
   if (!gridEl || !dailyData || !dailyData.length) return;
 
-  // Build date -> status block kind lookup (covers every day in every block range)
+  // Build local-date -> status block kind lookup
+  const localDateStr = dt => dt.getFullYear() + '-'
+    + String(dt.getMonth() + 1).padStart(2, '0') + '-'
+    + String(dt.getDate()).padStart(2, '0');
   const sbMap = {{}};
   if (statusBlocks && statusBlocks.length) {{
     statusBlocks.forEach(sb => {{
       const d = new Date(sb.start_at * 1000);
       d.setHours(0, 0, 0, 0);
       const endD = new Date(sb.end_at * 1000);
-      endD.setHours(23, 59, 59, 999);
+      // No extension — trust the stored end timestamp (server snaps to 23:59:59 local)
       while (d <= endD) {{
-        const key = d.getFullYear() + '-'
-          + String(d.getMonth() + 1).padStart(2, '0') + '-'
-          + String(d.getDate()).padStart(2, '0');
-        sbMap[key] = sb.kind;
+        sbMap[localDateStr(d)] = sb.kind;
         d.setDate(d.getDate() + 1);
       }}
     }});
@@ -1165,7 +1165,8 @@ function renderCalGrid(dailyData, gridId, statusBlocks) {{
       for (let d = 0; d < 7; d++) {{
         const inMonth = cur.getMonth() === mo && cur.getFullYear() === yr;
         const isFuture = cur > today;
-        week.push({{ date: cur.toISOString().slice(0, 10), item: byDate[cur.toISOString().slice(0, 10)] || null, inMonth, future: isFuture }});
+        const dateKey = localDateStr(cur);
+        week.push({{ date: dateKey, item: byDate[dateKey] || null, inMonth, future: isFuture }});
         cur.setDate(cur.getDate() + 1);
       }}
       if (week.some(c => c.inMonth)) weeks.push(week);
@@ -1355,12 +1356,7 @@ function renderDetail(d) {{
 function renderBars(data, id, statusBlocks) {{
   const el = document.getElementById(id);
   if (!el || !data) return;
-  // Normalise block end to local end-of-day so timeline and calendar agree.
-  const sbRanges = (statusBlocks || []).map(sb => {{
-    const endD = new Date(sb.end_at * 1000);
-    endD.setHours(23, 59, 59, 999);
-    return {{ start: sb.start_at, end: endD.getTime() / 1000, kind: sb.kind }};
-  }});
+  const sbRanges = (statusBlocks || []).map(sb => ({{ start: sb.start_at, end: sb.end_at, kind: sb.kind }}));
   // Derive bucket width from adjacent timestamps so overlap check works at edges
   const bucketSz = data.length > 1 ? (data[1].t - data[0].t) : 3600;
   el.innerHTML = data.map(b => {{
