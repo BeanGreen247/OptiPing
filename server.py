@@ -525,9 +525,15 @@ def _render_page(title: str, description: str) -> str:
       transition: opacity 0.12s;
     }}
     .tl-bar:hover {{ opacity: 0.65; }}
-    .tl-up       {{ background: var(--up); }}
-    .tl-down     {{ background: var(--down); }}
-    .tl-degraded {{ background: var(--degraded); }}
+    .tl-up          {{ background: var(--up); }}
+    .tl-down        {{ background: var(--down); }}
+    .tl-degraded    {{ background: var(--degraded); }}
+    .tl-maintenance {{ background: #f9a825; }}
+    .tl-vacation    {{ background: #42a5f5; }}
+    .tl-other       {{ background: #90a4ae; }}
+    [data-theme="dark"] .tl-maintenance {{ background: #e65100; }}
+    [data-theme="dark"] .tl-vacation    {{ background: #1565c0; }}
+    [data-theme="dark"] .tl-other       {{ background: #546e7a; }}
     .tl-no_data  {{ background: var(--bar-nodata); }}
 
     /* detail panel (dialog) */
@@ -1062,7 +1068,7 @@ async function fetchOverall() {{
 
 function renderOverall(d) {{
   if (d.status_blocks !== undefined) renderStatusBlocks(d.status_blocks);
-  renderBars(d.timeline_30d, 'overall-tl');
+  renderBars(d.timeline_30d, 'overall-tl', d.status_blocks || []);
 
   const setVal = (id, val) => {{
     const el = document.getElementById(id);
@@ -1340,10 +1346,16 @@ function renderDetail(d) {{
   activeChartData = d.timeline_24h;
 }}
 
-function renderBars(data, id) {{
+function renderBars(data, id, statusBlocks) {{
   const el = document.getElementById(id);
   if (!el || !data) return;
+  const sbRanges = (statusBlocks || []).map(sb => ({{ start: sb.start_at, end: sb.end_at, kind: sb.kind }}));
   el.innerHTML = data.map(b => {{
+    const sb = sbRanges.find(r => b.t >= r.start && b.t <= r.end);
+    if (sb) {{
+      const lbl = {{maintenance:'Maintenance',vacation:'Vacation',other:'Scheduled'}}[sb.kind] || sb.kind;
+      return `<div class="tl-bar tl-${{sb.kind}}" title="${{lbl}}"></div>`;
+    }}
     const tip = b.avg_ms ? b.avg_ms.toFixed(1)+'ms' : (b.status || 'no data');
     return `<div class="tl-bar tl-${{b.status||'no_data'}}" title="${{tip}}"></div>`;
   }}).join('');
