@@ -111,12 +111,27 @@ def create_app(
         authed = hmac.compare_digest(cookie, _admin_token())
         if not authed:
             return HTMLResponse(_render_admin_login(show_totp=bool(_totp_secret)))
-        incidents = app.state.db.get_incidents(include_resolved=True, limit=50)
+        try:
+            incidents = app.state.db.get_incidents(include_resolved=True, limit=50)
+        except Exception as _e:
+            log.error(f"admin get_incidents failed: {_e}")
+            incidents = []
         try:
             status_blocks = app.state.db.get_status_blocks()
-        except Exception:
+        except Exception as _e:
+            log.error(f"admin get_status_blocks failed: {_e}")
             status_blocks = []
-        return HTMLResponse(_render_admin_dashboard(incidents, status_blocks))
+        try:
+            return HTMLResponse(_render_admin_dashboard(incidents, status_blocks))
+        except Exception:
+            import traceback as _tb
+            _err = _tb.format_exc()
+            log.error(f"admin render failed:\n{_err}")
+            return HTMLResponse(
+                f"<style>body{{font-family:monospace;padding:2rem;background:#111;color:#f88}}</style>"
+                f"<h2>Admin render error — check logs</h2><pre>{_err}</pre>",
+                status_code=500,
+            )
 
     @app.post("/admin/login")
     async def admin_login(request: Request):
