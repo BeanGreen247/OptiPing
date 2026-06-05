@@ -226,15 +226,16 @@ def create_app(
             sb = []
         if not states:
             return JSONResponse({
-                "uptime_24h": None, "uptime_7d": None, "uptime_30d": None,
-                "timeline_30d": [], "daily_90d": [], "latest_incident": None,
+                "uptime_24h": None, "uptime_7d": None, "uptime_30d": None, "uptime_90d": None,
+                "timeline_90d": [], "daily_90d": [], "latest_incident": None,
                 "status_blocks": sb,
             })
         return JSONResponse({
             "uptime_24h":      app.state.db.get_overall_uptime_pct(24),
             "uptime_7d":       app.state.db.get_overall_uptime_pct(168),
             "uptime_30d":      app.state.db.get_overall_uptime_pct(720),
-            "timeline_30d":    app.state.db.get_overall_timeline(hours=720, buckets=90),
+            "uptime_90d":      app.state.db.get_overall_uptime_pct(2160),
+            "timeline_90d":    app.state.db.get_overall_timeline(hours=2160, buckets=90),
             "daily_90d":       app.state.db.get_daily_uptime_grid(90),
             "latest_incident": app.state.db.get_latest_incident(),
             "status_blocks":   sb,
@@ -741,7 +742,7 @@ def _render_page(title: str, description: str) -> str:
     }}
     .overall-uptimes {{
       display: grid;
-      grid-template-columns: repeat(3, 1fr);
+      grid-template-columns: repeat(4, 1fr);
       gap: 0.5rem;
       margin-top: 0.75rem;
     }}
@@ -901,7 +902,7 @@ def _render_page(title: str, description: str) -> str:
     <div class="ov-tl-scroll">
       <div class="ov-tl-inner">
         <div class="overall-tl-meta">
-          <span>30 days ago</span>
+          <span>90 days ago</span>
           <span>Today</span>
         </div>
         <div class="tl-wrap" id="overall-tl" style="height:20px"></div>
@@ -919,6 +920,10 @@ def _render_page(title: str, description: str) -> str:
       <div class="ov-stat">
         <div class="ov-val" id="ov-30d">—</div>
         <div class="ov-lbl">30d uptime</div>
+      </div>
+      <div class="ov-stat">
+        <div class="ov-val" id="ov-90d">—</div>
+        <div class="ov-lbl">90d uptime</div>
       </div>
     </div>
     <div class="cal-section">
@@ -1080,7 +1085,7 @@ async function fetchOverall() {{
 
 function renderOverall(d) {{
   if (d.status_blocks !== undefined) renderStatusBlocks(d.status_blocks);
-  renderBars(d.timeline_30d, 'overall-tl', d.status_blocks || []);
+  renderBars(d.timeline_90d, 'overall-tl', d.status_blocks || []);
 
   const setVal = (id, val) => {{
     const el = document.getElementById(id);
@@ -1091,10 +1096,11 @@ function renderOverall(d) {{
   setVal('ov-24h', d.uptime_24h);
   setVal('ov-7d',  d.uptime_7d);
   setVal('ov-30d', d.uptime_30d);
+  setVal('ov-90d', d.uptime_90d);
 
   const badge = document.getElementById('ov-badge');
   if (badge) {{
-    const pct = d.uptime_30d;
+    const pct = d.uptime_90d;
     if (pct == null) {{
       badge.className = 'badge'; badge.textContent = 'No data';
     }} else if (pct >= 99) {{
