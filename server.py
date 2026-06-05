@@ -792,16 +792,22 @@ def _render_page(title: str, description: str) -> str:
       cursor: default;
       flex-shrink: 0;
     }}
-    .cal-nodata {{ background: var(--bar-nodata); }}
-    .cal-100    {{ background: var(--up); }}
-    .cal-99     {{ background: #66bb6a; }}
-    .cal-95     {{ background: #a5d6a7; }}
-    .cal-90     {{ background: var(--degraded); }}
-    .cal-low    {{ background: #ef9a9a; }}
-    .cal-down   {{ background: var(--down); }}
-    [data-theme="dark"] .cal-99  {{ background: #388e3c; }}
-    [data-theme="dark"] .cal-95  {{ background: #1b5e20; }}
-    [data-theme="dark"] .cal-low {{ background: #b71c1c; }}
+    .cal-nodata      {{ background: var(--bar-nodata); }}
+    .cal-100         {{ background: var(--up); }}
+    .cal-99          {{ background: #66bb6a; }}
+    .cal-95          {{ background: #a5d6a7; }}
+    .cal-90          {{ background: var(--degraded); }}
+    .cal-low         {{ background: #ef9a9a; }}
+    .cal-down        {{ background: var(--down); }}
+    .cal-maintenance {{ background: #f9a825; }}
+    .cal-vacation    {{ background: #42a5f5; }}
+    .cal-other       {{ background: #90a4ae; }}
+    [data-theme="dark"] .cal-99          {{ background: #388e3c; }}
+    [data-theme="dark"] .cal-95          {{ background: #1b5e20; }}
+    [data-theme="dark"] .cal-low         {{ background: #b71c1c; }}
+    [data-theme="dark"] .cal-maintenance {{ background: #e65100; }}
+    [data-theme="dark"] .cal-vacation    {{ background: #1565c0; }}
+    [data-theme="dark"] .cal-other       {{ background: #546e7a; }}
     .cal-legend {{
       display: flex;
       align-items: center;
@@ -907,6 +913,11 @@ def _render_page(title: str, description: str) -> str:
         <div class="cal-cell cal-99"></div>
         <div class="cal-cell cal-100"></div>
         <span class="cal-lbl">More uptime</span>
+        <span class="cal-lbl" style="margin-left:0.6rem">&middot;</span>
+        <div class="cal-cell cal-maintenance" style="margin-left:0.4rem"></div>
+        <span class="cal-lbl">Maintenance</span>
+        <div class="cal-cell cal-vacation"></div>
+        <span class="cal-lbl">Vacation</span>
       </div>
     </div>
     <div class="overall-latest" id="ov-latest" style="display:none"></div>
@@ -1092,12 +1103,30 @@ function renderOverall(d) {{
       + ` <span style="font-size:0.78rem">&middot; ${{ts}}</span>`;
   }}
 
-  renderCalGrid(d.daily_90d, 'overall-cal');
+  renderCalGrid(d.daily_90d, 'overall-cal', d.status_blocks || []);
 }}
 
-function renderCalGrid(dailyData, gridId) {{
+function renderCalGrid(dailyData, gridId, statusBlocks) {{
   const gridEl = document.getElementById(gridId);
   if (!gridEl || !dailyData || !dailyData.length) return;
+
+  // Build date -> status block kind lookup (covers every day in every block range)
+  const sbMap = {{}};
+  if (statusBlocks && statusBlocks.length) {{
+    statusBlocks.forEach(sb => {{
+      const d = new Date(sb.start_at * 1000);
+      d.setHours(0, 0, 0, 0);
+      const endD = new Date(sb.end_at * 1000);
+      endD.setHours(23, 59, 59, 999);
+      while (d <= endD) {{
+        const key = d.getFullYear() + '-'
+          + String(d.getMonth() + 1).padStart(2, '0') + '-'
+          + String(d.getDate()).padStart(2, '0');
+        sbMap[key] = sb.kind;
+        d.setDate(d.getDate() + 1);
+      }}
+    }});
+  }}
 
   const byDate = {{}};
   dailyData.forEach(item => {{ byDate[item.date] = item; }});
@@ -1136,6 +1165,11 @@ function renderCalGrid(dailyData, gridId) {{
     const weeksHtml = group.weeks.map(week => {{
       const cells = week.map(({{date, item, inMonth, future}}) => {{
         if (!inMonth || future) return '<div class="cal-cell" style="background:transparent"></div>';
+        if (sbMap[date]) {{
+          const k = sbMap[date];
+          const lbl = {{maintenance:'Maintenance',vacation:'Vacation',other:'Scheduled'}}[k] || k;
+          return `<div class="cal-cell cal-${{k}}" title="${{date}}: ${{lbl}}"></div>`;
+        }}
         if (!item || item.total === 0) return `<div class="cal-cell cal-nodata" title="${{date}}: no data"></div>`;
         const pct = item.pct;
         let cls;

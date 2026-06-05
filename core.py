@@ -195,8 +195,12 @@ class Database:
         since = time.time() - hours * 3600
         cur = self._conn.execute(
             "SELECT COUNT(*) as total,"
-            " SUM(CASE WHEN status='up' THEN 1 ELSE 0 END) as up_count"
-            " FROM checks WHERE monitor_name = ? AND checked_at >= ?",
+            " SUM(CASE WHEN c.status='up' THEN 1 ELSE 0 END) as up_count"
+            " FROM checks c WHERE c.monitor_name = ? AND c.checked_at >= ?"
+            " AND NOT EXISTS ("
+            "   SELECT 1 FROM status_blocks sb"
+            "   WHERE c.checked_at BETWEEN sb.start_at AND sb.end_at"
+            " )",
             (monitor_name, since),
         )
         row = cur.fetchone()
@@ -287,8 +291,12 @@ class Database:
         since = time.time() - hours * 3600
         cur = self._conn.execute(
             "SELECT COUNT(*) as total,"
-            " SUM(CASE WHEN status='up' THEN 1 ELSE 0 END) as up_count"
-            " FROM checks WHERE checked_at >= ?",
+            " SUM(CASE WHEN c.status='up' THEN 1 ELSE 0 END) as up_count"
+            " FROM checks c WHERE c.checked_at >= ?"
+            " AND NOT EXISTS ("
+            "   SELECT 1 FROM status_blocks sb"
+            "   WHERE c.checked_at BETWEEN sb.start_at AND sb.end_at"
+            " )",
             (since,),
         )
         row = cur.fetchone()
