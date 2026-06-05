@@ -114,6 +114,17 @@ CREATE TABLE IF NOT EXISTS incidents (
 );
 """
 
+_CREATE_STATUS_BLOCKS = """
+CREATE TABLE IF NOT EXISTS status_blocks (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind       TEXT    NOT NULL DEFAULT 'maintenance',
+    title      TEXT    NOT NULL,
+    start_at   REAL    NOT NULL,
+    end_at     REAL    NOT NULL,
+    created_at REAL    NOT NULL
+);
+"""
+
 
 class Database:
     def __init__(self, path: str):
@@ -129,6 +140,7 @@ class Database:
         self._conn.execute(_CREATE_CHECKS)
         self._conn.execute(_CREATE_IDX)
         self._conn.execute(_CREATE_INCIDENTS)
+        self._conn.execute(_CREATE_STATUS_BLOCKS)
         self._conn.commit()
         log.info(f"database opened: {self._path}")
 
@@ -162,8 +174,13 @@ class Database:
             self._conn.execute(
                 "DELETE FROM checks WHERE checked_at < ?", (cutoff,)
             )
+            # remove status blocks whose end date is older than 90 days
+            sb_cutoff = time.time() - 90 * 86400
+            self._conn.execute(
+                "DELETE FROM status_blocks WHERE end_at < ?", (sb_cutoff,)
+            )
             self._conn.commit()
-        log.debug(f"pruned checks older than {retention_days}d")
+        log.debug(f"pruned checks older than {retention_days}d and expired status blocks")
 
     def get_recent_checks(self, monitor_name: str, limit: int = 100) -> list[dict]:
         cur = self._conn.execute(
@@ -356,6 +373,39 @@ class Database:
             )
         cols = [d[0] for d in cur.description]
         return [dict(zip(cols, row)) for row in cur.fetchall()]
+
+    def get_status_blocks(self, active_only: bool = False) -> list[dict]:
+        now = time.time()
+        if active_only:
+            cur = self._conn.execute(
+                "SELECT id, kind, title, start_at, end_at, created_at"
+                " FROM status_blocks WHERE start_at <= ? AND end_at >= ?"
+                " ORDER BY start_at ASC",
+                (now, now),
+            )
+        else:
+            cur = self._conn.execute(
+                "SELECT id, kind, title, start_at, end_at, created_at"
+                " FROM status_blocks ORDER BY start_at DESC"
+            )
+        cols = [d[0] for d in cur.description]
+        return [dict(zip(cols, row)) for row in cur.fetchall()]
+
+    async def create_status_block(self, kind: str, title: str, start_at: float, end_at: float) -> int:
+        now = time.time()
+        async with self._lock:
+            cur = self._conn.execute(
+                "INSERT INTO status_blocks (kind, title, start_at, end_at, created_at)"
+                " VALUES (?, ?, ?, ?, ?)",
+                (kind, title, start_at, end_at, now),
+            )
+            self._conn.commit()
+            return cur.lastrowid
+
+    async def delete_status_block(self, block_id: int):
+        async with self._lock:
+            self._conn.execute("DELETE FROM status_blocks WHERE id=?", (block_id,))
+            self._conn.commit()
 
 
 async def _check_ping(host: str, timeout: int) -> tuple[str, Optional[float]]:

@@ -112,7 +112,8 @@ def create_app(
         if not authed:
             return HTMLResponse(_render_admin_login(show_totp=bool(_totp_secret)))
         incidents = app.state.db.get_incidents(include_resolved=True, limit=50)
-        return HTMLResponse(_render_admin_dashboard(incidents))
+        status_blocks = app.state.db.get_status_blocks()
+        return HTMLResponse(_render_admin_dashboard(incidents, status_blocks))
 
     @app.post("/admin/login")
     async def admin_login(request: Request):
@@ -255,6 +256,39 @@ def create_app(
     @app.delete("/api/incidents/{incident_id}", dependencies=[AdminDep])
     async def api_delete_incident(incident_id: int):
         await app.state.db.delete_incident(incident_id)
+        return JSONResponse({"ok": True})
+
+    @app.get("/api/status-blocks")
+    async def api_get_status_blocks(active: bool = False):
+        return JSONResponse(app.state.db.get_status_blocks(active_only=active))
+
+    @app.post("/api/status-blocks", dependencies=[AdminDep])
+    async def api_create_status_block(request: Request):
+        data = await request.json()
+        kind = str(data.get("kind", "maintenance")).strip()
+        if kind not in {"maintenance", "vacation", "other"}:
+            kind = "maintenance"
+        title = str(data.get("title", "")).strip()
+        if not title:
+            raise HTTPException(400, "title is required")
+        start_str = str(data.get("start_at", "")).strip()
+        end_str = str(data.get("end_at", "")).strip()
+        if not start_str or not end_str:
+            raise HTTPException(400, "start_at and end_at are required")
+        try:
+            import datetime as _dt
+            start_at = _dt.datetime.fromisoformat(start_str).timestamp()
+            end_at = _dt.datetime.fromisoformat(end_str).timestamp()
+        except Exception:
+            raise HTTPException(400, "invalid date format — expected ISO 8601")
+        if end_at <= start_at:
+            raise HTTPException(400, "end_at must be after start_at")
+        block_id = await app.state.db.create_status_block(kind, title, start_at, end_at)
+        return JSONResponse({"id": block_id}, status_code=201)
+
+    @app.delete("/api/status-blocks/{block_id}", dependencies=[AdminDep])
+    async def api_delete_status_block(block_id: int):
+        await app.state.db.delete_status_block(block_id)
         return JSONResponse({"ok": True})
 
     @app.get("/api/stream", dependencies=[AuthDep])
@@ -570,6 +604,36 @@ def _render_page(title: str, description: str) -> str:
     .check-right .ms {{ font-family: "JetBrains Mono", "Fira Code", Consolas, monospace; font-size: 0.8rem; }}
     .check-err {{ color: var(--muted); font-size: 0.78rem; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }}
 
+    /* status blocks */
+    .sb-item {{
+      display: flex;
+      align-items: flex-start;
+      gap: 0.75rem;
+      background: var(--section-bg);
+      border: 1px solid var(--border);
+      border-left: 4px solid var(--muted);
+      border-radius: 6px;
+      padding: 0.85rem 1rem;
+      margin-bottom: 0.6rem;
+    }}
+    .sb-item.maintenance {{ border-left-color: #f9a825; background: #fffde7; }}
+    .sb-item.vacation    {{ border-left-color: #1565c0; background: #e3f2fd; }}
+    [data-theme="dark"] .sb-item.maintenance {{ background: #2d2500; }}
+    [data-theme="dark"] .sb-item.vacation    {{ background: #0d1e30; }}
+    .sb-icon  {{ font-size: 1.3rem; line-height: 1; flex-shrink: 0; margin-top: 0.1rem; }}
+    .sb-body  {{ flex: 1; min-width: 0; }}
+    .sb-title {{ font-weight: 700; font-size: 0.95rem; margin-bottom: 0.2rem; }}
+    .sb-dates {{ font-size: 0.82rem; color: var(--muted); }}
+    .sb-tag   {{
+      font-size: 0.72rem; font-weight: 700; padding: 0.1rem 0.45rem;
+      border-radius: 3px; text-transform: uppercase; letter-spacing: 0.04em;
+      align-self: flex-start; flex-shrink: 0; margin-top: 0.1rem;
+    }}
+    .sb-tag.active   {{ background: #e8f5e9; color: var(--up); }}
+    .sb-tag.upcoming {{ background: #fff8e1; color: #f57f17; }}
+    [data-theme="dark"] .sb-tag.active   {{ background: #1b3a1b; }}
+    [data-theme="dark"] .sb-tag.upcoming {{ background: #2d2500; }}
+
     .incident-item {{
       background: var(--section-bg);
       border: 1px solid var(--border);
@@ -823,6 +887,12 @@ def _render_page(title: str, description: str) -> str:
       </div>
     </div>
     <div class="overall-latest" id="ov-latest" style="display:none"></div>
+  </div>
+
+  <!-- Status blocks (maintenance / vacation / other) -->
+  <div id="sb-section" style="display:none">
+    <h2>Scheduled Events</h2>
+    <div id="sb-list"></div>
   </div>
 
   <!-- Active incidents -->
@@ -1301,6 +1371,52 @@ function redrawChart(data) {{
   drawChart(canvas.id, data);
 }}
 
+// Status blocks (read-only display)
+const SB_ICON  = {{ maintenance: '🔧', vacation: '🌴', other: 'ℹ️' }};
+const SB_LABEL = {{ maintenance: 'Maintenance', vacation: 'Vacation', other: 'Notice' }};
+
+async function fetchStatusBlocks() {{
+  try {{
+    const now = Date.now() / 1000;
+    const lookAhead = 7 * 86400; // show blocks up to 7 days ahead
+    const data = await fetch('/api/status-blocks').then(r => r.json());
+    const relevant = data.filter(sb =>
+      sb.end_at >= now && sb.start_at <= now + lookAhead
+    );
+    renderStatusBlocks(relevant);
+  }} catch(_) {{}}
+}}
+
+function renderStatusBlocks(list) {{
+  const section = document.getElementById('sb-section');
+  const container = document.getElementById('sb-list');
+  if (!list || !list.length) {{
+    section.style.display = 'none';
+    return;
+  }}
+  const now = Date.now() / 1000;
+  section.style.display = 'block';
+  container.innerHTML = list.map(sb => {{
+    const isActive = sb.start_at <= now && sb.end_at >= now;
+    const tag = isActive ? 'active' : 'upcoming';
+    const tagLabel = isActive ? 'Active now' : 'Upcoming';
+    const icon = SB_ICON[sb.kind] || 'ℹ️';
+    const kind = SB_LABEL[sb.kind] || sb.kind;
+    const fmt = ts => new Date(ts * 1000).toLocaleString([], {{
+      month: 'short', day: 'numeric', year: 'numeric',
+      hour: '2-digit', minute: '2-digit'
+    }});
+    return `<div class="sb-item ${{sb.kind}}">
+      <span class="sb-icon">${{icon}}</span>
+      <div class="sb-body">
+        <div class="sb-title">${{esc(sb.title)}}</div>
+        <div class="sb-dates">${{kind}} &middot; ${{fmt(sb.start_at)}} &ndash; ${{fmt(sb.end_at)}}</div>
+      </div>
+      <span class="sb-tag ${{tag}}">${{tagLabel}}</span>
+    </div>`;
+  }}).join('');
+}}
+
 // Incidents (read-only display)
 const SEVERITY_LABEL = {{
   investigating: 'Investigating',
@@ -1365,20 +1481,25 @@ let _incidentTimer = null;
 
 let _overallTimer = null;
 
+let _sbTimer = null;
+
 function startPolling() {{
   if (_monitorTimer)  clearInterval(_monitorTimer);
   if (_incidentTimer) clearInterval(_incidentTimer);
   if (_overallTimer)  clearInterval(_overallTimer);
-  _monitorTimer  = setInterval(fetchMonitors,  60000);
-  _incidentTimer = setInterval(fetchIncidents, 60000);
-  _overallTimer  = setInterval(fetchOverall,   60000);
+  if (_sbTimer)       clearInterval(_sbTimer);
+  _monitorTimer  = setInterval(fetchMonitors,      60000);
+  _incidentTimer = setInterval(fetchIncidents,     60000);
+  _overallTimer  = setInterval(fetchOverall,       60000);
+  _sbTimer       = setInterval(fetchStatusBlocks,  300000);
 }}
 
 function stopPolling() {{
   clearInterval(_monitorTimer);
   clearInterval(_incidentTimer);
   clearInterval(_overallTimer);
-  _monitorTimer = _incidentTimer = _overallTimer = null;
+  clearInterval(_sbTimer);
+  _monitorTimer = _incidentTimer = _overallTimer = _sbTimer = null;
 }}
 
 document.addEventListener('visibilitychange', () => {{
@@ -1388,6 +1509,7 @@ document.addEventListener('visibilitychange', () => {{
     fetchMonitors();
     fetchIncidents();
     fetchOverall();
+    fetchStatusBlocks();
     startPolling();
   }}
 }});
@@ -1395,6 +1517,7 @@ document.addEventListener('visibilitychange', () => {{
 fetchMonitors();
 fetchIncidents();
 fetchOverall();
+fetchStatusBlocks();
 startSSE();
 startPolling();
 </script>
@@ -1482,6 +1605,21 @@ _ADMIN_CSS = """
          border-bottom: 1px solid var(--border); }
   .nav-title { font-weight: 700; font-size: 1.1rem; }
   .resolved-row td { opacity: 0.55; }
+  .sb-badge {
+    font-size: 0.75rem; font-weight: 600; padding: 0.15rem 0.5rem;
+    border-radius: 3px; text-transform: capitalize;
+  }
+  .sb-maintenance { background: #fff3e0; color: #e65100; }
+  .sb-vacation    { background: #e3f2fd; color: #1565c0; }
+  .sb-other       { background: var(--section-bg); color: var(--muted); border: 1px solid var(--border); }
+  .sb-active      { background: #e8f5e9; color: var(--up); }
+  .sb-upcoming    { background: #fff8e1; color: #f57f17; }
+  .sb-past        { opacity: 0.5; }
+  [data-theme="dark"] .sb-maintenance { background: #2d1a00; color: #ffb74d; }
+  [data-theme="dark"] .sb-vacation    { background: #0d1e30; color: #64b5f6; }
+  [data-theme="dark"] .sb-active      { background: #1b3a1b; }
+  [data-theme="dark"] .sb-upcoming    { background: #2d2500; }
+  .inp-datetime { min-width: 170px; }
 """
 
 
@@ -1537,7 +1675,10 @@ def _render_admin_login(wrong: bool = False, show_totp: bool = False, wrong_totp
 </html>"""
 
 
-def _render_admin_dashboard(incidents: list) -> str:
+def _render_admin_dashboard(incidents: list, status_blocks: list) -> str:
+    import time as _time
+    from datetime import datetime
+
     sev_opts = ["investigating", "identified", "monitoring", "resolved"]
 
     def sev_badge(s: str) -> str:
@@ -1545,7 +1686,6 @@ def _render_admin_dashboard(incidents: list) -> str:
 
     rows = ""
     for inc in incidents:
-        from datetime import datetime
         created = datetime.fromtimestamp(inc["created_at"]).strftime("%Y-%m-%d %H:%M")
         updated = datetime.fromtimestamp(inc["updated_at"]).strftime("%Y-%m-%d %H:%M")
         resolved_cell = (
@@ -1580,6 +1720,34 @@ def _render_admin_dashboard(incidents: list) -> str:
         f'<option value="{s}">{s.capitalize()}</option>' for s in sev_opts[:3]
     )
 
+    # Status blocks table rows
+    _now = _time.time()
+    sb_rows = ""
+    for sb in status_blocks:
+        start_fmt = datetime.fromtimestamp(sb["start_at"]).strftime("%Y-%m-%d %H:%M")
+        end_fmt   = datetime.fromtimestamp(sb["end_at"]).strftime("%Y-%m-%d %H:%M")
+        kind = sb["kind"]
+        if _now < sb["start_at"]:
+            state_badge = '<span class="sb-badge sb-upcoming">Upcoming</span>'
+            tr_extra = ""
+        elif _now <= sb["end_at"]:
+            state_badge = '<span class="sb-badge sb-active">Active</span>'
+            tr_extra = ""
+        else:
+            state_badge = '<span style="color:var(--muted);font-size:0.78rem">Past</span>'
+            tr_extra = ' class="resolved-row"'
+        kind_badge = f'<span class="sb-badge sb-{kind}">{kind.capitalize()}</span>'
+        title_esc = str(sb["title"]).replace("&", "&amp;").replace("<", "&lt;")
+        sb_rows += f"""<tr{tr_extra}>
+  <td>{sb["id"]}</td>
+  <td>{kind_badge}</td>
+  <td>{title_esc}</td>
+  <td style="white-space:nowrap">{start_fmt}</td>
+  <td style="white-space:nowrap">{end_fmt}</td>
+  <td>{state_badge}</td>
+  <td><button class="btn-sm btn-danger" onclick="deleteStatusBlock({sb['id']})" type="button">Delete</button></td>
+</tr>"""
+
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -1609,6 +1777,39 @@ def _render_admin_dashboard(incidents: list) -> str:
     </div>
   </div>
 
+  <h2>Status Blocks</h2>
+  <p style="font-size:0.85rem;color:var(--muted);margin-bottom:1rem">
+    Date-range blocks shown to end users explaining planned downtime (maintenance, vacation, etc.).
+    Dates are in server local time.
+  </p>
+  <form id="sb-form">
+    <div class="form-row">
+      <select id="sb-kind">
+        <option value="maintenance">\ud83d\udd27 Maintenance</option>
+        <option value="vacation">\ud83c\udf34 Vacation</option>
+        <option value="other">\u2139\ufe0f Other</option>
+      </select>
+      <input class="inp-title" id="sb-title" type="text" placeholder="Label&hellip;" maxlength="200" required/>
+    </div>
+    <div class="form-row">
+      <label style="align-self:center;font-size:0.85rem;font-weight:600;margin:0">From</label>
+      <input class="inp-datetime" id="sb-start" type="datetime-local" required/>
+      <label style="align-self:center;font-size:0.85rem;font-weight:600;margin:0">To</label>
+      <input class="inp-datetime" id="sb-end" type="datetime-local" required/>
+      <button class="btn" type="submit">Add</button>
+    </div>
+    <p id="sb-msg" style="font-size:0.85rem;margin-top:0.4rem"></p>
+  </form>
+
+  <table style="margin-top:0.75rem">
+    <thead>
+      <tr>
+        <th>#</th><th>Type</th><th>Title</th><th>Start</th><th>End</th><th>Status</th><th></th>
+      </tr>
+    </thead>
+    <tbody id="sb-table">{sb_rows if sb_rows else '<tr><td colspan="7" style="color:var(--muted);text-align:center;padding:1rem">No status blocks yet.</td></tr>'}</tbody>
+  </table>
+
   <h2>Post Incident</h2>
   <form id="inc-form">
     <div class="form-row">
@@ -1634,6 +1835,40 @@ def _render_admin_dashboard(incidents: list) -> str:
   </table>
 </div>
 <script>
+document.getElementById('sb-form').addEventListener('submit', async e => {{
+  e.preventDefault();
+  const kind  = document.getElementById('sb-kind').value;
+  const title = document.getElementById('sb-title').value.trim();
+  const start = document.getElementById('sb-start').value;
+  const end   = document.getElementById('sb-end').value;
+  const msg   = document.getElementById('sb-msg');
+  if (!title || !start || !end) return;
+  const r = await fetch('/api/status-blocks', {{
+    method: 'POST',
+    headers: {{'Content-Type': 'application/json'}},
+    body: JSON.stringify({{kind, title, start_at: start, end_at: end}}),
+  }});
+  if (r.ok) {{
+    msg.style.color = 'var(--up)';
+    msg.textContent = 'Status block added. Reloading\u2026';
+    setTimeout(() => location.reload(), 800);
+  }} else {{
+    const err = await r.json().catch(() => ({{}}));
+    msg.style.color = 'var(--down)';
+    msg.textContent = 'Failed: ' + (err.detail || r.status);
+  }}
+}});
+
+async function deleteStatusBlock(id) {{
+  if (!confirm('Delete this status block? This cannot be undone.')) return;
+  const r = await fetch('/api/status-blocks/' + id, {{ method: 'DELETE' }});
+  if (r.ok) {{
+    location.reload();
+  }} else {{
+    alert('Delete failed (' + r.status + ')');
+  }}
+}}
+
 document.getElementById('inc-form').addEventListener('submit', async e => {{
   e.preventDefault();
   const title = document.getElementById('inc-title').value.trim();
