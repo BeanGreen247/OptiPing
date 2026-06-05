@@ -1350,8 +1350,11 @@ function renderBars(data, id, statusBlocks) {{
   const el = document.getElementById(id);
   if (!el || !data) return;
   const sbRanges = (statusBlocks || []).map(sb => ({{ start: sb.start_at, end: sb.end_at, kind: sb.kind }}));
+  // Derive bucket width from adjacent timestamps so overlap check works at edges
+  const bucketSz = data.length > 1 ? (data[1].t - data[0].t) : 3600;
   el.innerHTML = data.map(b => {{
-    const sb = sbRanges.find(r => b.t >= r.start && b.t <= r.end);
+    // Overlap: bucket [b.t, b.t+bucketSz) intersects block [r.start, r.end]
+    const sb = sbRanges.find(r => b.t < r.end && (b.t + bucketSz) > r.start);
     if (sb) {{
       const lbl = {{maintenance:'Maintenance',vacation:'Vacation',other:'Scheduled'}}[sb.kind] || sb.kind;
       return `<div class="tl-bar tl-${{sb.kind}}" title="${{lbl}}"></div>`;
