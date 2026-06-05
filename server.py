@@ -301,17 +301,22 @@ def create_app(
             raise HTTPException(400, "start_at and end_at are required")
         try:
             import datetime as _dt
-            # Accept YYYY-MM-DD or YYYY-MM-DDTHH:MM; always store as UTC day boundaries
-            start_at = _dt.datetime(
-                *[int(x) for x in start_str.split('T')[0].split('-')],
-                0, 0, 0, tzinfo=_dt.timezone.utc
-            ).timestamp()
-            end_at = _dt.datetime(
-                *[int(x) for x in end_str.split('T')[0].split('-')],
-                23, 59, 59, tzinfo=_dt.timezone.utc
-            ).timestamp()
+            if kind == 'maintenance':
+                # Exact times in server local time
+                start_at = _dt.datetime.fromisoformat(start_str).timestamp()
+                end_at   = _dt.datetime.fromisoformat(end_str).timestamp()
+            else:
+                # Day-only — store as full UTC days
+                start_at = _dt.datetime(
+                    *[int(x) for x in start_str.split('T')[0].split('-')],
+                    0, 0, 0, tzinfo=_dt.timezone.utc
+                ).timestamp()
+                end_at = _dt.datetime(
+                    *[int(x) for x in end_str.split('T')[0].split('-')],
+                    23, 59, 59, tzinfo=_dt.timezone.utc
+                ).timestamp()
         except Exception:
-            raise HTTPException(400, "invalid date format — expected YYYY-MM-DD")
+            raise HTTPException(400, "invalid date/time format")
         if end_at <= start_at:
             raise HTTPException(400, "end_at must be after start_at")
         block_id = await app.state.db.create_status_block(kind, title, start_at, end_at)
@@ -1780,8 +1785,13 @@ def _render_admin_dashboard(incidents: list, status_blocks: list) -> str:
     _now = _time.time()
     sb_rows = ""
     for sb in status_blocks:
-        start_fmt = datetime.fromtimestamp(sb["start_at"]).strftime("%Y-%m-%d %H:%M")
-        end_fmt   = datetime.fromtimestamp(sb["end_at"]).strftime("%Y-%m-%d %H:%M")
+        if sb["kind"] == "maintenance":
+            start_fmt = datetime.fromtimestamp(sb["start_at"]).strftime("%Y-%m-%d %H:%M")
+            end_fmt   = datetime.fromtimestamp(sb["end_at"]).strftime("%Y-%m-%d %H:%M")
+        else:
+            from datetime import timezone as _tz
+            start_fmt = datetime.fromtimestamp(sb["start_at"], tz=_tz.utc).strftime("%Y-%m-%d")
+            end_fmt   = datetime.fromtimestamp(sb["end_at"],   tz=_tz.utc).strftime("%Y-%m-%d")
         kind = sb["kind"]
         if _now < sb["start_at"]:
             state_badge = '<span class="sb-badge sb-upcoming">Upcoming</span>'
@@ -1835,12 +1845,11 @@ def _render_admin_dashboard(incidents: list, status_blocks: list) -> str:
 
   <h2>Status Blocks</h2>
   <p style="font-size:0.85rem;color:var(--muted);margin-bottom:1rem">
-    Date-range blocks shown to end users explaining planned downtime (maintenance, vacation, etc.).
-    Dates are in server local time.
+    Maintenance supports exact start/end times (server local time). Vacation and Other use full days (UTC).
   </p>
   <form id="sb-form">
     <div class="form-row">
-      <select id="sb-kind">
+      <select id="sb-kind" onchange="sbKindChanged(this.value)">
         <option value="maintenance">Maintenance</option>
         <option value="vacation">Vacation</option>
         <option value="other">Other</option>
@@ -1849,9 +1858,9 @@ def _render_admin_dashboard(incidents: list, status_blocks: list) -> str:
     </div>
     <div class="form-row">
       <label style="align-self:center;font-size:0.85rem;font-weight:600;margin:0">From</label>
-      <input class="inp-datetime" id="sb-start" type="date" required/>
+      <input class="inp-datetime" id="sb-start" type="datetime-local" required/>
       <label style="align-self:center;font-size:0.85rem;font-weight:600;margin:0">To</label>
-      <input class="inp-datetime" id="sb-end" type="date" required/>
+      <input class="inp-datetime" id="sb-end" type="datetime-local" required/>
       <button class="btn" type="submit">Add</button>
     </div>
     <p id="sb-msg" style="font-size:0.85rem;margin-top:0.4rem"></p>
@@ -1891,6 +1900,12 @@ def _render_admin_dashboard(incidents: list, status_blocks: list) -> str:
   </table>
 </div>
 <script>
+function sbKindChanged(kind) {{
+  const isMaint = kind === 'maintenance';
+  document.getElementById('sb-start').type = isMaint ? 'datetime-local' : 'date';
+  document.getElementById('sb-end').type   = isMaint ? 'datetime-local' : 'date';
+}}
+
 document.getElementById('sb-form').addEventListener('submit', async e => {{
   e.preventDefault();
   const kind  = document.getElementById('sb-kind').value;
