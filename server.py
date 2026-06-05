@@ -112,7 +112,10 @@ def create_app(
         if not authed:
             return HTMLResponse(_render_admin_login(show_totp=bool(_totp_secret)))
         incidents = app.state.db.get_incidents(include_resolved=True, limit=50)
-        status_blocks = app.state.db.get_status_blocks()
+        try:
+            status_blocks = app.state.db.get_status_blocks()
+        except Exception:
+            status_blocks = []
         return HTMLResponse(_render_admin_dashboard(incidents, status_blocks))
 
     @app.post("/admin/login")
