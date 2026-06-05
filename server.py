@@ -220,10 +220,15 @@ def create_app(
     @app.get("/api/overall", dependencies=[AuthDep])
     async def api_overall():
         states = app.state.scheduler.get_states()
+        try:
+            sb = app.state.db.get_status_blocks(active_only=False)
+        except Exception:
+            sb = []
         if not states:
             return JSONResponse({
                 "uptime_24h": None, "uptime_7d": None, "uptime_30d": None,
                 "timeline_30d": [], "daily_90d": [], "latest_incident": None,
+                "status_blocks": sb,
             })
         return JSONResponse({
             "uptime_24h":      app.state.db.get_overall_uptime_pct(24),
@@ -232,6 +237,7 @@ def create_app(
             "timeline_30d":    app.state.db.get_overall_timeline(hours=720, buckets=90),
             "daily_90d":       app.state.db.get_daily_uptime_grid(90),
             "latest_incident": app.state.db.get_latest_incident(),
+            "status_blocks":   sb,
         })
 
     @app.get("/api/incidents")
@@ -1044,6 +1050,7 @@ async function fetchOverall() {{
 }}
 
 function renderOverall(d) {{
+  if (d.status_blocks !== undefined) renderStatusBlocks(d.status_blocks);
   renderBars(d.timeline_30d, 'overall-tl');
 
   const setVal = (id, val) => {{
@@ -1391,18 +1398,6 @@ function redrawChart(data) {{
 // Status blocks (read-only display)
 const SB_LABEL = {{ maintenance: 'Maintenance', vacation: 'Vacation', other: 'Notice' }};
 
-async function fetchStatusBlocks() {{
-  try {{
-    const now = Date.now() / 1000;
-    const lookAhead = 7 * 86400; // show blocks up to 7 days ahead
-    const data = await fetch('/api/status-blocks').then(r => r.json());
-    const relevant = data.filter(sb =>
-      sb.end_at >= now && sb.start_at <= now + lookAhead
-    );
-    renderStatusBlocks(relevant);
-  }} catch(_) {{}}
-}}
-
 function renderStatusBlocks(list) {{
   const section = document.getElementById('sb-section');
   const container = document.getElementById('sb-list');
@@ -1411,8 +1406,10 @@ function renderStatusBlocks(list) {{
     return;
   }}
   const now = Date.now() / 1000;
+  const relevant = list.filter(sb => sb.end_at >= now && sb.start_at <= now + 7 * 86400);
+  if (!relevant.length) {{ section.style.display = 'none'; return; }}
   section.style.display = 'block';
-  container.innerHTML = list.map(sb => {{
+  container.innerHTML = relevant.map(sb => {{
     const isActive = sb.start_at <= now && sb.end_at >= now;
     const tag = isActive ? 'active' : 'upcoming';
     const tagLabel = isActive ? 'Active now' : 'Upcoming';
@@ -1495,25 +1492,20 @@ let _incidentTimer = null;
 
 let _overallTimer = null;
 
-let _sbTimer = null;
-
 function startPolling() {{
   if (_monitorTimer)  clearInterval(_monitorTimer);
   if (_incidentTimer) clearInterval(_incidentTimer);
   if (_overallTimer)  clearInterval(_overallTimer);
-  if (_sbTimer)       clearInterval(_sbTimer);
-  _monitorTimer  = setInterval(fetchMonitors,      60000);
-  _incidentTimer = setInterval(fetchIncidents,     60000);
-  _overallTimer  = setInterval(fetchOverall,       60000);
-  _sbTimer       = setInterval(fetchStatusBlocks,  300000);
+  _monitorTimer  = setInterval(fetchMonitors,  60000);
+  _incidentTimer = setInterval(fetchIncidents, 60000);
+  _overallTimer  = setInterval(fetchOverall,   60000);
 }}
 
 function stopPolling() {{
   clearInterval(_monitorTimer);
   clearInterval(_incidentTimer);
   clearInterval(_overallTimer);
-  clearInterval(_sbTimer);
-  _monitorTimer = _incidentTimer = _overallTimer = _sbTimer = null;
+  _monitorTimer = _incidentTimer = _overallTimer = null;
 }}
 
 document.addEventListener('visibilitychange', () => {{
@@ -1523,7 +1515,6 @@ document.addEventListener('visibilitychange', () => {{
     fetchMonitors();
     fetchIncidents();
     fetchOverall();
-    fetchStatusBlocks();
     startPolling();
   }}
 }});
@@ -1531,7 +1522,6 @@ document.addEventListener('visibilitychange', () => {{
 fetchMonitors();
 fetchIncidents();
 fetchOverall();
-fetchStatusBlocks();
 startSSE();
 startPolling();
 </script>
